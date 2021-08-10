@@ -34,7 +34,7 @@ class TomBFTSequencer : public Sequencer {
     for (int i = 0; i < 4; i += 1) {  // TODO configurable replica number
       std::string replica_sig;
       s.SequencerSigner(i, id).Sign(msg, replica_sig);
-      replica_sig.copy(header->hmac_list[i], SHA256_DIGEST_LENGTH);
+      replica_sig.copy(header->hmac_list[i], HMAC_LENGTH);
     }
     transport_->SendMessageToAll(this, BufferMessage(buf, size));
   }

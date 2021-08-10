@@ -10,6 +10,7 @@
 #include <string>
 
 #include "lib/configuration.h"
+#include "lib/message.h"
 #include "lib/transport.h"
 
 // change back to specpaxos if we are not adopting
@@ -113,7 +114,7 @@ class HomogeneousSecurity : public Security {
  public:
   HomogeneousSecurity(const Signer &s, const Verifier &v, const Signer &seq_s,
                       const Verifier &seq_v)
-      : Security(s, v), s(s), seq_s(s), v(v), seq_v(v) {}
+      : Security(s, v), s(s), seq_s(seq_s), v(v), seq_v(seq_v) {}
   HomogeneousSecurity(const Signer &s, const Verifier &v)
       : HomogeneousSecurity(s, v, s, v) {}
 

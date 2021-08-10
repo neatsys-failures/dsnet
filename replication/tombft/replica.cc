@@ -30,7 +30,7 @@ void TomBFTReplica::ReceiveMessage(const TransportAddress &remote, void *buf,
   m.Parse(buf, size);
   switch (msg.msg_case()) {
     case proto::Message::kRequest:
-      HandleRequest(msg.request(), remote, m.meta, m);
+      HandleRequest(msg.request(), remote, m.meta, m, msg);
       break;
     default:
       Panic("Received unexpected message type #%u", msg.msg_case());
@@ -40,14 +40,15 @@ void TomBFTReplica::ReceiveMessage(const TransportAddress &remote, void *buf,
 void TomBFTReplica::HandleRequest(const proto::RequestMessage &msg,
                                   const TransportAddress &remote,
                                   const TomBFTMessage::Header &meta,
-                                  const TomBFTMessage &m) {
+                                  const TomBFTMessage &m,
+                                  const proto::Message &proto_msg) {
   Assert(meta.sess_num != 0);
-  std::string seq_sig(meta.hmac_list[replicaIdx], 32);
-  // if (!security.SequencerVerifier(replicaIdx)
-  //          .Verify(msg.SerializeAsString(), seq_sig)) {
-  //   RWarning("Incorrect sequencer signature");
-  //   return;
-  // }
+  std::string seq_sig(meta.hmac_list[replicaIdx], HMAC_LENGTH);
+  if (!security.SequencerVerifier(replicaIdx)
+           .Verify(proto_msg.SerializeAsString(), seq_sig)) {
+    RWarning("Incorrect sequencer signature");
+    return;
+  }
   if (!security.ClientVerifier().Verify(msg.req().SerializeAsString(),
                                         msg.sig())) {
     RWarning("Incorrect client signature");
@@ -71,7 +72,7 @@ void TomBFTReplica::HandleRequest(const proto::RequestMessage &msg,
 
   reply_msg.mutable_reply()->set_sig(string());
   security.ReplicaSigner(replicaIdx)
-      .Sign(reply_msg.SerializeAsString(),
+      .Sign(reply_msg.reply().SerializeAsString(),
             *reply_msg.mutable_reply()->mutable_sig());
 
   TransportAddress *client_addr =

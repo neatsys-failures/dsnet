@@ -8,6 +8,8 @@
 #include "lib/message.h"
 #include "lib/signature.h"
 
+#define HMAC_LENGTH SHA256_DIGEST_LENGTH
+
 #define HTON_SESSNUM(n) htons(n)
 #define NTOH_SESSNUM(n) ntohs(n)
 #define HTON_MSGNUM(n) htobe64(n)
@@ -23,7 +25,7 @@ class TomBFTMessage : public Message {
     // non-sequencing packet has garbage in this header
     std::uint16_t sess_num;
     std::uint64_t msg_num;
-    char hmac_list[4][SHA256_DIGEST_LENGTH];  // TODO configurable
+    char hmac_list[4][HMAC_LENGTH];  // TODO configurable
   };
   Header meta;
 

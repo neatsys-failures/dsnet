@@ -31,7 +31,8 @@ class TomBFTReplica : public Replica {
  private:
   void HandleRequest(const proto::RequestMessage &msg,
                      const TransportAddress &remote,
-                     const TomBFTMessage::Header &meta, const TomBFTMessage &m);
+                     const TomBFTMessage::Header &meta, const TomBFTMessage &m,
+                     const proto::Message &proto_msg);
 
   const Security &security;
   viewstamp_t vs;

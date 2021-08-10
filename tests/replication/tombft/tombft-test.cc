@@ -99,5 +99,36 @@ TEST(TomBFT, 1Op) {
     tp.CancelAllTimers();
   });
   tp.Run();
-  // ASSERT_STREQ(reply.c_str(), "reply: test");
+  ASSERT_STREQ(reply.c_str(), "reply: test");
+}
+
+TEST(TomBFT, 1OpSign) {
+  map<int, vector<ReplicaAddress> > replicaAddrs = {{0,
+                                                     {{"localhost", "1509"},
+                                                      {"localhost", "1510"},
+                                                      {"localhost", "1511"},
+                                                      {"localhost", "1512"}}}};
+  Configuration c(1, 4, 1, replicaAddrs, nullptr, {{"localhost", "8888"}});
+  SimulatedTransport tp;
+  Secp256k1Signer signer;
+  Secp256k1Verifier verifier(signer);
+  Signer seq_signer;
+  Verifier seq_verifier;
+  HomogeneousSecurity s(signer, verifier, seq_signer, seq_verifier);
+  TestApp app[4];
+  unique_ptr<TomBFTReplica> replica[4];
+  for (int i = 0; i < 4; i += 1) {
+    replica[i] = unique_ptr<TomBFTReplica>(
+        new TomBFTReplica(c, i, true, &tp, s, &app[i]));
+  }
+  TomBFTSequencer seq(c, &tp, s, 0);
+  TomBFTClient client(c, ReplicaAddress("localhost", "0"), &tp, s);
+
+  string reply;
+  client.Invoke("test", [&](const string &req, const string &arg_reply) {
+    reply = arg_reply;
+    tp.CancelAllTimers();
+  });
+  tp.Run();
+  ASSERT_STREQ(reply.c_str(), "reply: test");
 }

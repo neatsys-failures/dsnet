@@ -47,7 +47,7 @@ void TomBFTClient::SendRequest() {
   msg.mutable_request()->mutable_req()->set_clientreqid(
       pending_request->client_req_id);
   msg.mutable_request()->mutable_req()->set_clientaddr(node_addr_->Serialize());
-  security.ClientSigner().Sign(msg.request().SerializeAsString(),
+  security.ClientSigner().Sign(msg.request().req().SerializeAsString(),
                                *msg.mutable_request()->mutable_sig());
   if (config.NumSequencers()) {
     transport->SendMessageToSequencer(this, 0, TomBFTMessage(msg, true));

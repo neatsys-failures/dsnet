@@ -315,7 +315,9 @@ void PbftReplica::TryEnterCommitRound(const proto::Common &msg) {
 }
 
 void PbftReplica::TryReachCommitPoint(const proto::Common &msg) {
-  Assert(msg.seqnum() <= log.LastOpnum());
+  // in some cases Commit reaches before PrePrepare
+  // Assert(msg.seqnum() <= log.LastOpnum());
+  if (msg.seqnum() > log.LastOpnum()) return;
   if (log.Find(msg.seqnum())->state == LOG_STATE_COMMITTED) return;
 
   if (!CommittedLocal(msg.seqnum(), msg)) return;
@@ -403,9 +405,11 @@ void PbftReplica::ExecuteEntry(LogEntry *entry, bool speculative) {
   security.ReplicaSigner(ReplicaId())
       .Sign(reply.SerializeAsString(), *reply.mutable_sig());
   UpdateClientTable(req, m);
-  if (clientAddressTable.count(req.clientid()))
-    transport->SendMessage(this, *clientAddressTable[req.clientid()],
-                           PBMessage(m));
+  if (!clientAddressTable.count(req.clientid()))
+    clientAddressTable[req.clientid()] = unique_ptr<TransportAddress>(
+        transport->LookupAddress(ReplicaAddress(req.clientaddr()))->clone());
+  transport->SendMessage(this, *clientAddressTable[req.clientid()],
+                         PBMessage(m));
 }
 
 void PbftReplica::ScheduleStateTransfer(opnum_t seqNum) {

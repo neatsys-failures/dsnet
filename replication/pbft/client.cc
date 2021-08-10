@@ -19,9 +19,7 @@ PbftClient::PbftClient(const Configuration &config, const ReplicaAddress &addr,
     : Client(config, addr, transport, clientid), security(sec) {
   lastReqId = 0;
   pendingRequest = nullptr;
-  // requestTimeout = new Timeout(transport, 1000, [this]() { ResendRequest(); });
-  // workaround for bench
-  requestTimeout = new Timeout(transport, 10, [this]() { ResendRequest(); });
+  requestTimeout = new Timeout(transport, 1000, [this]() { ResendRequest(); });
 
   view = 0;
 }
@@ -48,6 +46,7 @@ void PbftClient::SendRequest(bool broadcast) {
   reqMsg.mutable_req()->set_op(pendingRequest->request);
   reqMsg.mutable_req()->set_clientid(clientid);
   reqMsg.mutable_req()->set_clientreqid(lastReqId);
+  reqMsg.mutable_req()->set_clientaddr(node_addr_->Serialize());
 
   security.ClientSigner().Sign(reqMsg.req().SerializeAsString(),
                                *reqMsg.mutable_sig());
