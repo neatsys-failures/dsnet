@@ -171,7 +171,7 @@ filter_t DisableTraffic(TransportReceiver *src, TransportReceiver *dst) {
              uint64_t &delay) { return src != src_ || dst != dst_; };
 }
 
-TEST(Pbft, ResendPrePrepare) {
+TEST(Pbft, DISABLED_ResendPrePrepare) {
   System<1> system;
   Client &client = *system.clients[0];
   bool done = false;
@@ -222,4 +222,44 @@ TEST(Pbft, SimpleStateTransfer) {
   system.transport.Timer(3000, [&]() { system.transport.Stop(); });
   system.transport.Run();
   ASSERT_TRUE(done);
+}
+
+TEST(Pbft, 10Client10000Op) {
+  NopSecurity s;
+  System<10> system(s);
+  Transport &transport = system.transport;
+  int nbCilentOp = 10000;
+
+  int opIndex[10];
+  std::function<void(const string &, const string &)> onResp[10];
+  for (int j = 0; j < 10; j += 1) {
+    opIndex[j] = 0;
+    onResp[j] = [&, j = j](const string &req, const string &reply) {
+      char buf[100];
+      sprintf(buf, "test%d", opIndex[j]);
+      ASSERT_EQ(req, buf);
+      for (int i = 0; i < 4; i += 1) {
+        // ASSERT_EQ(system.apps[i].LastOp(), buf);
+        ASSERT_GE(system.apps[i].opList.size(), opIndex[j]);
+      }
+
+      sprintf(buf, "reply: test%d", opIndex[j]);
+      ASSERT_EQ(reply, buf);
+      opIndex[j] += 1;
+      if (opIndex[j] < nbCilentOp) {
+        sprintf(buf, "test%d", opIndex[j]);
+        system.clients[j]->Invoke(buf, onResp[j]);
+      }
+    };
+  }
+
+  for (int j = 0; j < 10; j += 1) {
+    system.clients[j]->Invoke("test0", onResp[j]);
+  }
+  transport.Timer(1500, [&]() { transport.Stop(); });
+  transport.Run();
+
+  for (int i = 0; i < 4; i += 1) {
+    ASSERT_EQ(system.apps[i].opList.size(), 10 * nbCilentOp);
+  }
 }
