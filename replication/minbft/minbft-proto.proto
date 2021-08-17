@@ -1,0 +1,14 @@
+syntax = "proto3";
+import "common/request.proto";
+package dsnet.minbft.proto;
+
+message MinBFTMessage {
+    oneof msg {
+        RequestMessage request = 1;
+    }
+}
+
+message RequestMessage {
+    dsnet.Request common = 1;
+    string sig = 2;
+}
