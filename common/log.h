@@ -50,7 +50,7 @@ enum LogEntryState {
   LOG_STATE_PREPARED,
   LOG_STATE_SPECULATIVE,   // specpaxos, pbft
   LOG_STATE_FASTPREPARED,  // fastpaxos only
-  LOG_STATE_RECEIVED,      // nopaxos only
+  LOG_STATE_RECEIVED,      // nopaxos, minbft
   LOG_STATE_NOOP,          // nopaxos only
   LOG_STATE_EXECUTED,      // granola
   LOG_STATE_PREPREPARED,   // pbft

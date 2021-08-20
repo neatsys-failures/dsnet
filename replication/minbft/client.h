@@ -11,9 +11,15 @@ namespace dsnet {
 namespace minbft {
 class MinBFTClient : public Client {
  public:
-  MinBFTClient(const Configuration &c, ReplicaAddress &addr, Transport *t,
-               const Security &s);
-  virtual ~MinBFTClient();
+  MinBFTClient(const Configuration &c, const ReplicaAddress &addr, Transport *t,
+               const Security &s)
+      : Client(c, addr, t), s(s), then(nullptr), reply_set(c.f + 1) {
+    req_timeout = new Timeout(t, 1000, [this]() {
+      Warning("Timeout req#%lu", op_num);
+      SendRequest();
+    });
+  }
+  virtual ~MinBFTClient() { delete req_timeout; }
   virtual void ReceiveMessage(const TransportAddress &remote, void *buf,
                               size_t len) override {
     proto::MinBFTMessage msg;
@@ -24,7 +30,7 @@ class MinBFTClient : public Client {
         HandleReply(remote, *msg.mutable_reply());
         break;
       default:
-        Panic("unexpected message case %d", msg.msg_case());
+        Panic("Unexpected message case %d", msg.msg_case());
     }
   }
   virtual void Invoke(const string &op, continuation_t then) override {
@@ -56,6 +62,7 @@ class MinBFTClient : public Client {
     req.mutable_common()->set_clientid(clientid);
     req.mutable_common()->set_clientreqid(op_num);
     req.mutable_common()->set_clientaddr(node_addr_->Serialize());
+    req.clear_sig();
     s.ClientSigner().Sign(req.SerializeAsString(), *req.mutable_sig());
     transport->SendMessageToAll(this, PBMessage(msg));
   }

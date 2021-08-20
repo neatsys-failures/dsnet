@@ -6,6 +6,8 @@ message MinBFTMessage {
     oneof msg {
         RequestMessage request = 1;
         ReplyMessage reply = 2;
+        PrepareMessage prepare = 3;
+        CommitMessage commit = 4;
     }
 }
 
@@ -19,4 +21,25 @@ message ReplyMessage {
     string reply = 2;
     uint64 clientreqid = 3;
     string sig = 4;
+}
+
+message UI {
+    uint64 id = 1;
+    string sig = 2;
+}
+
+message PrepareMessage {
+    uint64 view = 1;
+    uint32 replicaid = 2;
+    RequestMessage req = 3;
+    UI ui = 4;
+}
+
+message CommitMessage {
+    uint64 view = 1;
+    uint32 replicaid = 2;
+    uint32 primaryid = 3;
+    RequestMessage req = 4;
+    UI primaryui = 5;
+    UI ui = 6;
 }
