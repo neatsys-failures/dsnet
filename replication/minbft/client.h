@@ -34,6 +34,10 @@ class MinBFTClient : public Client {
     }
   }
   virtual void Invoke(const string &op, continuation_t then) override {
+    if (this->then) {
+      Panic("double invoke");
+    }
+    op_num += 1;
     this->op = op;
     this->then = then;
     SendRequest();
@@ -51,7 +55,7 @@ class MinBFTClient : public Client {
 
   opnum_t op_num = 0;
   string op;
-  continuation_t then;
+  continuation_t then = nullptr;
   Timeout *req_timeout;
   ByzantineQuorumSet<opnum_t, string> reply_set;
 
@@ -79,12 +83,14 @@ class MinBFTClient : public Client {
       return;
     }
     if (msg.clientreqid() != op_num) {
+      Debug("late reply, %lu != %lu", msg.clientreqid(), op_num);
       return;
     }
     if (!reply_set.Add(op_num, msg.replicaid(), msg.reply())) {
       return;
     }
     Debug("Op #%lu finished", op_num);
+    req_timeout->Stop();
     continuation_t then = this->then;
     this->then = nullptr;
     then(op, msg.reply());

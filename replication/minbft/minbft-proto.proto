@@ -13,19 +13,19 @@ message MinBFTMessage {
 
 message RequestMessage {
     dsnet.Request common = 1;
-    string sig = 2;
+    bytes sig = 2;
 }
 
 message ReplyMessage {
     uint32 replicaid = 1;
     string reply = 2;
     uint64 clientreqid = 3;
-    string sig = 4;
+    bytes sig = 4;
 }
 
 message UI {
     uint64 id = 1;
-    string sig = 2;
+    bytes sig = 2;
 }
 
 message PrepareMessage {

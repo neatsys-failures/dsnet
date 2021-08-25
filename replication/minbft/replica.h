@@ -65,9 +65,9 @@ class MinBFTLogEntry : public LogEntry {
   string sig;
   proto::UI ui;
 
-  MinBFTLogEntry(view_t view, const proto::UI &ui, LogEntryState state,
-                 const Request &req, string sig)
-      : LogEntry(viewstamp_t(view, ui.id()), state, req), sig(sig), ui(ui) {}
+  MinBFTLogEntry(view_t view, opnum_t seqnum, LogEntryState state,
+                 const Request &req, string sig, proto::UI ui)
+      : LogEntry(viewstamp_t(view, seqnum), state, req), sig(sig), ui(ui) {}
   virtual ~MinBFTLogEntry() {}
 };
 
@@ -79,6 +79,7 @@ class MinBFTReplica : public Replica {
         s(s),
         create_ui(s.ReplicaSigner(replica_id)),
         view(0),
+        seqnum(0),
         log(false),
         last_executed(0),
         commit_set(c.f + 1) {
@@ -118,6 +119,7 @@ class MinBFTReplica : public Replica {
   std::unique_ptr<VerifyUI> *verify_ui;
 
   view_t view;
+  opnum_t seqnum;
   Log log;
   ui_t last_executed;
   QuorumSet<ui_t, proto::CommitMessage> commit_set;
@@ -138,6 +140,17 @@ class MinBFTReplica : public Replica {
 
   void TryEnterPrepared();
   void TryExecute();
+
+  MinBFTLogEntry *FindEntry(ui_t id) {
+    for (opnum_t seqnum = log.LastOpnum(); seqnum >= log.FirstOpnum();
+         seqnum -= 1) {
+      auto &entry = log.Find(seqnum)->As<MinBFTLogEntry>();
+      if (entry.ui.id() == id) {
+        return &entry;
+      }
+    }
+    return nullptr;
+  }
 };
 }  // namespace minbft
 }  // namespace dsnet

@@ -9,6 +9,7 @@
 #include "lib/signature.h"
 
 #define HMAC_LENGTH SHA256_DIGEST_LENGTH
+#define DIGEST_LENGTH SHA256_DIGEST_LENGTH
 
 #define HTON_SESSNUM(n) htons(n)
 #define NTOH_SESSNUM(n) ntohs(n)
@@ -21,10 +22,9 @@ namespace tombft {
 class TomBFTMessage : public Message {
  public:
   struct __attribute__((packed)) Header {
-    // no sequencing flag, every packet has this header
-    // non-sequencing packet has garbage in this header
     std::uint16_t sess_num;
     std::uint64_t msg_num;
+    char digest[DIGEST_LENGTH];
     char hmac_list[4][HMAC_LENGTH];  // TODO configurable
   };
   Header meta;
