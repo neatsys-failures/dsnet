@@ -48,6 +48,7 @@
 #include "replication/unreplicated/client.h"
 #include "replication/vr/client.h"
 #include "replication/tombft/client.h"
+#include "replication/minbft/client.h"
 
 static void Usage(const char *progName) {
   fprintf(stderr,
@@ -81,6 +82,7 @@ int main(int argc, char **argv) {
     PROTO_NOPAXOS,
     PROTO_PBFT,
     PROTO_TOMBFT,
+    PROTO_MINBFT,
   } proto = PROTO_UNKNOWN;
 
   enum { TRANSPORT_UDP, TRANSPORT_DPDK } transport_type = TRANSPORT_UDP;
@@ -140,6 +142,8 @@ int main(int argc, char **argv) {
           proto = PROTO_TOMBFT;
         } else if (strcasecmp(optarg, "pbft") == 0) {
           proto = PROTO_PBFT;
+        } else if (strcasecmp(optarg, "minbft") == 0) {
+          proto = PROTO_MINBFT;
         } else {
           fprintf(stderr, "unknown mode '%s'\n", optarg);
           Usage(argv[0]);
@@ -266,6 +270,10 @@ int main(int argc, char **argv) {
 
       case PROTO_TOMBFT:
         client = new dsnet::tombft::TomBFTClient(config, addr, transport, security);
+        break;
+
+      case PROTO_MINBFT:
+        client = new dsnet::minbft::MinBFTClient(config, addr, transport, security);
         break;
 
       default:

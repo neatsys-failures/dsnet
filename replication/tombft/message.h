@@ -24,8 +24,10 @@ class TomBFTMessage : public Message {
   struct __attribute__((packed)) Header {
     std::uint16_t sess_num;
     std::uint64_t msg_num;
-    char digest[DIGEST_LENGTH];
-    char hmac_list[4][HMAC_LENGTH];  // TODO configurable
+    union {
+      char digest[16];
+      char hmac[16];
+    } sig_list[4];
   };
   Header meta;
 

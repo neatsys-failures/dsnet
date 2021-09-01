@@ -48,6 +48,7 @@
 #include "replication/tombft/replica.h"
 #include "replication/unreplicated/replica.h"
 #include "replication/vr/replica.h"
+#include "replication/minbft/replica.h"
 
 static void Usage(const char *progName) {
   fprintf(stderr,
@@ -77,6 +78,7 @@ int main(int argc, char **argv) {
     PROTO_NOPAXOS,
     PROTO_PBFT,
     PROTO_TOMBFT,
+    PROTO_MINBFT,
   } proto = PROTO_UNKNOWN;
 
   // Parse arguments
@@ -131,6 +133,8 @@ int main(int argc, char **argv) {
           proto = PROTO_PBFT;
         } else if (strcasecmp(optarg, "tombft") == 0) {
           proto = PROTO_TOMBFT;
+        } else if (strcasecmp(optarg, "minbft") == 0) {
+          proto = PROTO_MINBFT;
         } else {
           fprintf(stderr, "unknown mode '%s'\n", optarg);
           Usage(argv[0]);
@@ -229,6 +233,11 @@ int main(int argc, char **argv) {
 
     case PROTO_TOMBFT:
       replica = new dsnet::tombft::TomBFTReplica(config, index, !recover,
+                                                 &transport, security, nullApp);
+      break;
+
+    case PROTO_MINBFT:
+      replica = new dsnet::minbft::MinBFTReplica(config, index, !recover,
                                                  &transport, security, nullApp);
       break;
 

@@ -43,7 +43,7 @@ void TomBFTReplica::HandleRequest(const proto::RequestMessage &msg,
                                   const TomBFTMessage &m,
                                   const proto::Message &proto_msg) {
   Assert(meta.sess_num != 0);
-  std::string seq_sig(meta.hmac_list[replicaIdx], HMAC_LENGTH);
+  std::string seq_sig(meta.sig_list[replicaIdx].hmac, HMAC_LENGTH);
   if (!security.SequencerVerifier(replicaIdx)
            .Verify(proto_msg.SerializeAsString(), seq_sig)) {
     RWarning("Incorrect sequencer signature");

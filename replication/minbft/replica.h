@@ -32,31 +32,28 @@ class CreateUI {
 
  public:
   CreateUI(const Signer &signer) : signer(signer), last_ui(0) {}
-  bool operator()(const string &msg, string &sig) {
+  bool operator()(const string &msg, proto::UI &ui) {
     last_ui += 1;
     string raw =
         msg + std::to_string(last_ui);  // C++ string cannot have embedded 0
-    return signer.Sign(raw, sig);
+    string sig;
+    if (!signer.Sign(raw, sig)) {
+      return false;
+    }
+    ui.set_sig(sig);
+    ui.set_id(last_ui);
+    return true;
   }
-  uint64_t UI() const { return last_ui; }
 };
 
 class VerifyUI {
   const Verifier &verifier;
-  ui_t last_ui;
 
  public:
-  VerifyUI(const Verifier &verifier) : verifier(verifier), last_ui(0) {}
+  VerifyUI(const Verifier &verifier) : verifier(verifier) {}
   bool operator()(const string &msg, const string &sig, uint64_t ui) {
-    if (ui != last_ui + 1) {
-      return false;
-    }
-    string raw = msg + std::to_string(last_ui + 1);
-    if (!verifier.Verify(raw, sig)) {
-      return false;
-    }
-    last_ui += 1;
-    return true;
+    string raw = msg + std::to_string(ui);
+    return verifier.Verify(raw, sig);
   }
 };
 
@@ -87,6 +84,7 @@ class MinBFTReplica : public Replica {
     for (int i = 0; i < c.n; i += 1) {
       verify_ui[i] =
           std::unique_ptr<VerifyUI>(new VerifyUI(s.ReplicaVerifier(i)));
+      last_ui[i] = 0;
     }
   }
   virtual ~MinBFTReplica() {
@@ -102,11 +100,8 @@ class MinBFTReplica : public Replica {
       case proto::MinBFTMessage::kRequest:
         HandleRequest(remote, *msg.mutable_request());
         break;
-      case proto::MinBFTMessage::kPrepare:
-        HandlePrepare(remote, *msg.mutable_prepare());
-        break;
-      case proto::MinBFTMessage::kCommit:
-        HandleCommit(remote, *msg.mutable_commit());
+      case proto::MinBFTMessage::kFromReplica:
+        EnqueueReplicaMessage(*msg.mutable_from_replica());
         break;
       default:
         RPanic("Unexpected message case: %d", msg.msg_case());
@@ -134,9 +129,13 @@ class MinBFTReplica : public Replica {
 
   void HandleRequest(const TransportAddress &remote,
                      proto::RequestMessage &msg);
-  void HandlePrepare(const TransportAddress &remote,
-                     proto::PrepareMessage &msg);
-  void HandleCommit(const TransportAddress &remote, proto::CommitMessage &msg);
+
+  void EnqueueReplicaMessage(proto::FromReplicaMessage &msg);
+  std::unordered_map<int, std::map<ui_t, proto::FromReplicaMessage>> msg_queue;
+  std::unordered_map<int, ui_t> last_ui;
+
+  void HandlePrepare(proto::FromReplicaMessage &msg);
+  void HandleCommit(proto::FromReplicaMessage &msg);
 
   void TryEnterPrepared();
   void TryExecute();
