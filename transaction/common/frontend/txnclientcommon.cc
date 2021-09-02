@@ -56,16 +56,14 @@ TxnClientCommon::Invoke(const std::map<shardnum_t, string> &requests,
     arg.indep = indep;
     arg.ro = ro;
 
-    this->transport->Timer(0, [ = ]() {
-        this->waiting = promise;
-        this->protoClient->Invoke(requests,
-                                  bind(&TxnClientCommon::InvokeCallback,
-                                       this,
-                                       placeholders::_1,
-                                       placeholders::_2,
-                                       placeholders::_3),
-                                  (void *)&arg);
-    });
+    this->waiting = promise;
+    this->protoClient->Invoke(requests,
+                              bind(&TxnClientCommon::InvokeCallback,
+                                   this,
+                                   placeholders::_1,
+                                   placeholders::_2,
+                                   placeholders::_3),
+                              (void *)&arg);
 
     results = promise->GetValues();
     bool commit = promise->GetCommit();

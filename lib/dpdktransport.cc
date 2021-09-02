@@ -74,7 +74,7 @@ ConstructArguments(int argc, char **argv, const std::string &cmdline)
     strcpy(argv[0], "command");
     argv[1] = new char[strlen("-l")+1];
     strcpy(argv[1], "-l");
-    argv[2] = new char[strlen("1")+1];
+    argv[2] = new char[strlen("0")+1];
     strcpy(argv[2], "0");
     argv[3] = new char[strlen("--proc-type=auto")+1];
     strcpy(argv[3], "--proc-type=auto");
@@ -245,7 +245,7 @@ DPDKTransport::Timer(uint64_t ms, timer_callback_t cb)
     info->id = ++last_timer_id_;
     timers_[info->id] = info;
 
-    uint64_t ticks = hz / (1000 / (double)ms);
+    uint64_t ticks = (ms == 0) ? 0 : hz / (1000 / (double)ms);
     rte_timer_reset(&info->timer, ticks, SINGLE, rte_lcore_id(), TimerCallback, info);
 
     return info->id;
