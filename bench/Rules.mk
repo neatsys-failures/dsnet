@@ -13,5 +13,6 @@ $(d)client: $(OBJS-spec-client) $(OBJS-pbft-client) $(OBJS-tombft-client) $(OBJS
 $(d)replica: $(o)replica.o $(LIB-udptransport) $(LIB-dpdktransport)
 $(d)replica: $(OBJS-vr-replica) $(OBJS-fastpaxos-replica) $(OBJS-unreplicated-replica) $(OBJS-nopaxos-replica)
 $(d)replica: $(OBJS-spec-replica) $(OBJS-pbft-replica) $(OBJS-tombft-replica) $(OBJS-minbft-replica)
+$(d)replica: $(OBJS-ni-store) $(LIB-kvstore) $(LIB-stores) $(OBJS-ni-request)
 
 BINS += $(d)client $(d)replica
