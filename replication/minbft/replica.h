@@ -103,6 +103,8 @@ class MinBFTReplica : public Replica {
       case proto::MinBFTMessage::kFromReplica:
         EnqueueReplicaMessage(*msg.mutable_from_replica());
         break;
+      case proto::MinBFTMessage::kGapRequest:
+        HandleGapRequest(remote, *msg.mutable_gap_request());
       default:
         RPanic("Unexpected message case: %d", msg.msg_case());
     }
@@ -121,21 +123,35 @@ class MinBFTReplica : public Replica {
 
   std::unordered_map<uint64_t, proto::ReplyMessage> reply_table;
 
-  struct PendingPrepare {
-    proto::PrepareMessage msg;
-    Timeout *timeout;
-  };
-  std::list<PendingPrepare> prepare_list;
-
   void HandleRequest(const TransportAddress &remote,
                      proto::RequestMessage &msg);
 
   void EnqueueReplicaMessage(proto::FromReplicaMessage &msg);
   std::unordered_map<int, std::map<ui_t, proto::FromReplicaMessage>> msg_queue;
+  std::unordered_map<int, std::unordered_map<ui_t, std::unique_ptr<Timeout>>>
+      timer_map;
   std::unordered_map<int, ui_t> last_ui;
+
+  void Broadcast(proto::FromReplicaMessage &msg) {
+    Assert(msg.ui().id() == msg_log.empty() ? 1 : msg_log.back().ui().id() + 1);
+    msg_log.push_back(msg);
+    proto::MinBFTMessage big_msg;
+    *big_msg.mutable_from_replica() = msg;
+    transport->SendMessageToAll(this, PBMessage(big_msg));
+  }
+  const proto::FromReplicaMessage &FindPastMessage(ui_t ui) {
+    return msg_log[ui - 1];
+  }
+  std::vector<proto::FromReplicaMessage> msg_log;
 
   void HandlePrepare(proto::FromReplicaMessage &msg);
   void HandleCommit(proto::FromReplicaMessage &msg);
+  void HandleGapRequest(const TransportAddress &remote,
+                        proto::GapRequest &msg) {
+    proto::MinBFTMessage reply_msg;
+    *reply_msg.mutable_from_replica() = FindPastMessage(msg.seq());
+    transport->SendMessage(this, remote, PBMessage(reply_msg));
+  }
 
   void TryEnterPrepared();
   void TryExecute();

@@ -43,8 +43,8 @@ void MinBFTReplica::HandleRequest(const TransportAddress &remote,
   create_ui(from_replica.SerializeAsString(), ui);
   *from_replica.mutable_ui() = ui;
 
-  transport->SendMessageToAll(this, PBMessage(prepare_msg));
-  // TODO pending resend
+  // transport->SendMessageToAll(this, PBMessage(prepare_msg));
+  Broadcast(from_replica);
 
   seqnum += 1;
   log.Append(new MinBFTLogEntry(view, seqnum, LOG_STATE_RECEIVED, msg.common(),
@@ -62,11 +62,27 @@ void MinBFTReplica::EnqueueReplicaMessage(proto::FromReplicaMessage &msg) {
   }
   *msg.mutable_ui() = ui;
   msg_queue[msg.replicaid()][msg.ui().id()] = msg;
+  timer_map[msg.replicaid()].erase(msg.ui().id());
   while (msg_queue[msg.replicaid()].size()) {
     auto iter = msg_queue[msg.replicaid()].begin();
     auto next_msg = iter->second;
     msg_queue[msg.replicaid()].erase(iter);
     if (next_msg.ui().id() != last_ui[msg.replicaid()] + 1) {
+      for (ui_t seq = last_ui[msg.replicaid()] + 1; seq != next_msg.ui().id();
+           seq += 1) {
+        if (!timer_map[msg.replicaid()].count(seq)) {
+          timer_map[msg.replicaid()][seq] = std::unique_ptr<Timeout>(
+              new Timeout(transport, 1000,
+                          [this, seq = seq, replicaid = msg.replicaid()]() {
+                            proto::MinBFTMessage msg;
+                            auto &gap_req = *msg.mutable_gap_request();
+                            gap_req.set_seq(seq);
+                            transport->SendMessageToReplica(this, replicaid,
+                                                            PBMessage(msg));
+                          }));
+          timer_map[msg.replicaid()][seq]->Start();
+        }
+      }
       break;
     }
     last_ui[msg.replicaid()] += 1;
@@ -165,7 +181,8 @@ void MinBFTReplica::TryEnterPrepared() {
   *from_replica.mutable_ui() = ui;
 
   commit_set.Add(entry->viewstamp.opnum, replicaIdx, commit);
-  transport->SendMessageToAll(this, PBMessage(msg));
+  // transport->SendMessageToAll(this, PBMessage(msg));
+  Broadcast(from_replica);
 }
 
 void MinBFTReplica::TryExecute() {

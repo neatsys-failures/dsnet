@@ -7,6 +7,7 @@ message MinBFTMessage {
         RequestMessage request = 1;
         ReplyMessage reply = 2;
         FromReplicaMessage from_replica = 3;
+        GapRequest gap_request = 4;
     }
 }
 
@@ -46,4 +47,8 @@ message CommitMessage {
     uint32 primaryid = 2;
     RequestMessage req = 3;
     UI primaryui = 4;
+}
+
+message GapRequest {
+    uint64 seq = 1;
 }
