@@ -8,7 +8,7 @@
 
 #include <vector>
 #include <map>
-#include <set>
+#include <atomic>
 #include <algorithm>
 
 #include "lib/latency.h"
@@ -48,23 +48,23 @@ static int nValues = 1000;
 
 static int duration = 10;
 static int tputInterval = 0;
-static uint64_t total_latency = 0;
-static uint64_t commit_transactions = 0;
-static std::map<uint64_t, int> throughputs, latency_dist;
 static int readportion = 50;
 static int updateportion = 50;
 static int rmwportion = 0;
 static bool indep = true;
-static uint64_t total_transactions = 0;
-static struct timeval startTime, endTime;
-static KVClient *kvClient;
-static TxnClient *txnClient;
 static dsnet::Transport *transport;
+static int n_threads = 1;
 
-uint64_t key_to_shard(const std::string &key, uint64_t nshards);
+static std::vector<uint64_t> total_latency;
+static std::vector<uint64_t> commit_transactions;
+static std::vector<uint64_t> total_transactions;
+static std::vector<std::map<uint64_t, int>> throughputs, latency_dist;
+static std::atomic<int> n_finished(0);
+
+static int rand_value();
 
 static void
-client_thread()
+client_thread(int tid, KVClient *kvClient, TxnClient *txnClient, Client *protoClient)
 {
     phase_t phase = WARMUP;
     uint64_t last_interval_txns = 0;
@@ -77,26 +77,27 @@ client_thread()
         gettimeofday(&currTime, NULL);
         uint64_t time_elapsed = currTime.tv_sec - initialTime.tv_sec;
 
-        if (phase == MEASURE) {
-            int time_since_interval = (currTime.tv_sec - lastInterval.tv_sec)*1000 + (currTime.tv_usec - lastInterval.tv_usec)/1000;
-
-            if (tputInterval > 0 && time_since_interval >= tputInterval) {
-                throughputs[((currTime.tv_sec*1000+currTime.tv_usec/1000)/tputInterval)*tputInterval] += (commit_transactions - last_interval_txns) * (1000 / tputInterval);
+        if (phase == MEASURE && tputInterval > 0) {
+            int time_since_interval = (currTime.tv_sec - lastInterval.tv_sec)*1000 +
+                (currTime.tv_usec - lastInterval.tv_usec)/1000;
+            if (time_since_interval >= tputInterval) {
+                uint64_t index = ((currTime.tv_sec*1000+currTime.tv_usec/1000)
+                        /tputInterval)*tputInterval;
+                throughputs[tid][index] += (commit_transactions[tid] - last_interval_txns)
+                    * (1000 / tputInterval);
                 lastInterval = currTime;
-                last_interval_txns = commit_transactions;
+                last_interval_txns = commit_transactions[tid];
             }
         }
 
         if (phase == WARMUP) {
             if (time_elapsed >= (uint64_t)duration / 3) {
                 phase = MEASURE;
-                startTime = currTime;
                 gettimeofday(&lastInterval, NULL);
             }
         } else if (phase == MEASURE) {
             if (time_elapsed >= (uint64_t)duration * 2 / 3) {
                 phase = COOLDOWN;
-                endTime = currTime;
             }
         } else if (phase == COOLDOWN) {
             if (time_elapsed >= (uint64_t)duration) {
@@ -129,15 +130,21 @@ client_thread()
 
         if (phase == MEASURE) {
             if (commit) {
-                commit_transactions++;
+                commit_transactions[tid]++;
             }
-            latency_dist[ns/1000]++;
-            total_transactions++;
-            total_latency += (ns/1000);
+            latency_dist[tid][ns/1000]++;
+            total_transactions[tid]++;
+            total_latency[tid] += ns/1000;
         }
     }
     txnClient->Done();
-    transport->Stop();
+    if (++n_finished == n_threads) {
+        transport->Stop();
+    }
+    delete kvClient; // destructor of kvClient will deallocate txnClient
+    if (protoClient) {
+        delete protoClient;
+    }
 }
 
 int
@@ -150,13 +157,11 @@ main(int argc, char **argv)
     string host, dev, transport_cmdline, stats_file;
     int dev_port = 0;
 
-    Client *protoClient = nullptr;
-
     protomode_t mode = PROTO_UNKNOWN;
     enum { TRANSPORT_UDP, TRANSPORT_DPDK } transport_type = TRANSPORT_UDP;
 
     int opt;
-    while ((opt = getopt(argc, argv, "c:d:e:f:gh:i:k:m:N:p:r:s:u:v:w:x:z:Z:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:d:e:f:gh:i:k:m:N:p:r:s:t:u:v:w:x:z:Z:")) != -1) {
         switch (opt) {
         case 'c': // Configuration path
         {
@@ -337,6 +342,18 @@ main(int argc, char **argv)
             break;
         }
 
+        case 't': // number of benchmark threads
+        {
+            char *strtolPtr;
+            n_threads = strtod(optarg, &strtolPtr);
+            if ((*optarg == '\0') || (*strtolPtr != '\0') || n_threads < 1)
+            {
+                fprintf(stderr,
+                        "option -t requires a numeric arg >= 1\n");
+            }
+            break;
+        }
+
         default:
             fprintf(stderr, "Unknown argument %s\n", argv[optind]);
             break;
@@ -364,6 +381,7 @@ main(int argc, char **argv)
     gettimeofday(&tv, NULL);
     srand(tv.tv_usec);
 
+    // Initialize transport
     ifstream configStream(configPath);
     if (configStream.fail()) {
         Panic("unable to read configuration file: %s", configPath);
@@ -380,37 +398,6 @@ main(int argc, char **argv)
             transport = new dsnet::DPDKTransport(dev_port, 0, transport_cmdline);
             break;
     }
-
-    switch (mode) {
-    case PROTO_ERIS: {
-        protoClient = new eris::ErisClient(config, addr, transport);
-        break;
-    }
-    case PROTO_GRANOLA: {
-        protoClient = new granola::GranolaClient(config, addr, transport);
-        break;
-    }
-    case PROTO_UNREPLICATED: {
-        protoClient =
-            new transaction::unreplicated::UnreplicatedClient(config, addr, transport);
-        break;
-    }
-    case PROTO_SPANNER: {
-        protoClient = new spanner::SpannerClient(config, addr, transport);
-        break;
-    }
-    case PROTO_TAPIR: {
-        break;
-    }
-    default:
-        Panic("Unknown protocol mode");
-    }
-    if (mode == PROTO_TAPIR) {
-        txnClient = new tapir::TapirClient(config, addr, transport);
-    } else {
-        txnClient = new TxnClientCommon(transport, protoClient);
-    }
-    kvClient = new KVClient(txnClient, nShards);
 
     // Read in the keys from a file.
     string inkey, invalue;
@@ -436,26 +423,83 @@ main(int argc, char **argv)
     }
     in.close();
 
-    std::thread t(client_thread);
+    // Start benchmark threads
+    total_latency.resize(n_threads, 0);
+    commit_transactions.resize(n_threads, 0);
+    total_transactions.resize(n_threads, 0);
+    throughputs.resize(n_threads);
+    latency_dist.resize(n_threads);
+    std::vector<std::thread> threads;
+    for (int i = 0; i < n_threads; i++) {
+        KVClient *kvClient = nullptr;
+        TxnClient *txnClient = nullptr;
+        Client *protoClient = nullptr;
+
+        switch (mode) {
+            case PROTO_ERIS:
+                protoClient = new eris::ErisClient(config, addr, transport);
+                break;
+            case PROTO_GRANOLA:
+                protoClient = new granola::GranolaClient(config, addr, transport);
+                break;
+            case PROTO_UNREPLICATED:
+                protoClient =
+                    new transaction::unreplicated::UnreplicatedClient(config,
+                            addr, transport);
+                break;
+            case PROTO_SPANNER:
+                protoClient = new spanner::SpannerClient(config, addr, transport);
+                break;
+            case PROTO_TAPIR:
+                break;
+            default:
+                Panic("Unknown protocol mode");
+        }
+        if (mode == PROTO_TAPIR) {
+            txnClient = new tapir::TapirClient(config, addr, transport);
+        } else {
+            txnClient = new TxnClientCommon(transport, protoClient);
+        }
+        kvClient = new KVClient(txnClient, nShards);
+        threads.push_back(std::thread(client_thread,
+                    i, kvClient, txnClient, protoClient));
+    }
     transport->Run();
-    t.join();
+    for (auto &t : threads) {
+        t.join();
+    }
 
-    struct timeval diff = timeval_sub(endTime, startTime);
+    // Combine results
+    uint64_t agg_total_latency = 0,
+             agg_commit_transactions = 0,
+             agg_total_transactions = 0;
+    std::map<uint64_t, int> agg_throughputs, agg_latency_dist;
+    for (int i = 0; i < n_threads; i++) {
+        agg_total_latency += total_latency[i];
+        agg_commit_transactions += commit_transactions[i];
+        agg_total_transactions += total_transactions[i];
+        for (const auto &kv : throughputs[i]) {
+            agg_throughputs[kv.first] += kv.second;
+        }
+        for (const auto &kv : latency_dist[i]) {
+            agg_latency_dist[kv.first] += kv.second;
+        }
+    }
 
-    Notice("Completed %lu transactions in " FMT_TIMEVAL_DIFF " seconds",
-           commit_transactions, VA_TIMEVAL_DIFF(diff));
-    Notice("Commit rate %.3f", (double)commit_transactions / total_transactions);
+    Notice("Completed %lu transactions in %.3f seconds",
+           agg_commit_transactions, (float)duration / 3);
+    Notice("Commit rate %.3f", (double)agg_commit_transactions / agg_total_transactions);
 
-    Notice("Average latency is %lu us", total_latency/total_transactions);
+    Notice("Average latency is %lu us", agg_total_latency/agg_total_transactions);
     enum class Mode { kMedian, k90, k95, k99 };
     Mode m = Mode::kMedian;
     uint64_t sum = 0;
     uint64_t median, p90, p95, p99;
-    for (auto kv : latency_dist) {
+    for (auto kv : agg_latency_dist) {
         sum += kv.second;
         switch (m) {
             case Mode::kMedian:
-                if (sum >= total_transactions / 2) {
+                if (sum >= agg_total_transactions / 2) {
                     median = kv.first;
                     Notice("Median latency is %ld", median);
                     m = Mode::k90;
@@ -464,7 +508,7 @@ main(int argc, char **argv)
                     break;
                 }
             case Mode::k90:
-                if (sum >= total_transactions * 90 / 100) {
+                if (sum >= agg_total_transactions * 90 / 100) {
                     p90 = kv.first;
                     Notice("90th percentile latency is  latency is %ld", p90);
                     m = Mode::k95;
@@ -473,7 +517,7 @@ main(int argc, char **argv)
                     break;
                 }
             case Mode::k95:
-                if (sum >= total_transactions * 95 / 100) {
+                if (sum >= agg_total_transactions * 95 / 100) {
                     p95 = kv.first;
                     Notice("95th percentile latency is  latency is %ld", p95);
                     m = Mode::k99;
@@ -482,7 +526,7 @@ main(int argc, char **argv)
                     break;
                 }
             case Mode::k99:
-                if (sum >= total_transactions * 99 / 100) {
+                if (sum >= agg_total_transactions * 99 / 100) {
                     p99 = kv.first;
                     Notice("99th percentile latency is  latency is %ld", p99);
                     goto done;
@@ -494,26 +538,21 @@ main(int argc, char **argv)
 done:
     if (stats_file.size() > 0) {
         std::ofstream fs(stats_file.c_str(), std::ios::out);
-        fs << commit_transactions / (diff.tv_sec + (float)diff.tv_usec / 1000000.0) << std::endl;
+        fs << agg_commit_transactions / ((float)duration / 3) << std::endl;
         fs << median << " " << p90 << " " << p95 << " " << p99 << std::endl;
-        for (const auto &kv : latency_dist) {
+        for (const auto &kv : agg_latency_dist) {
             fs << kv.first << " " << kv.second << std::endl;
         }
         fs.close();
-        if (throughputs.size() > 0) {
+        if (agg_throughputs.size() > 0) {
             fs.open(stats_file.append("_tputs").c_str());
-            for (const auto &kv : throughputs) {
+            for (const auto &kv : agg_throughputs) {
                 fs << kv.first << " " << kv.second << std::endl;
             }
             fs.close();
         }
     }
 
-    delete kvClient;
-    // destructor of kvClient will deallocate txnClient
-    if (protoClient) {
-        delete protoClient;
-    }
     delete transport;
 
     return 0;
@@ -569,13 +608,3 @@ int rand_value()
     // Uniform selection of values.
     return (rand() % nValues);
 }
-
-uint64_t key_to_shard(const std::string &key, uint64_t nshards) {
-    uint64_t hash = 5381;
-    const char* str = key.c_str();
-    for (unsigned int i = 0; i < key.length(); i++) {
-        hash = ((hash << 5) + hash) + (uint64_t)str[i];
-    }
-
-    return (hash % nshards);
-};
