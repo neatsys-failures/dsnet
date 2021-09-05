@@ -66,25 +66,30 @@ void MinBFTReplica::EnqueueReplicaMessage(proto::FromReplicaMessage &msg) {
   while (msg_queue[msg.replicaid()].size()) {
     auto iter = msg_queue[msg.replicaid()].begin();
     auto next_msg = iter->second;
-    msg_queue[msg.replicaid()].erase(iter);
     if (next_msg.ui().id() != last_ui[msg.replicaid()] + 1) {
       for (ui_t seq = last_ui[msg.replicaid()] + 1; seq != next_msg.ui().id();
            seq += 1) {
         if (!timer_map[msg.replicaid()].count(seq)) {
-          timer_map[msg.replicaid()][seq] = std::unique_ptr<Timeout>(
-              new Timeout(transport, 1000,
-                          [this, seq = seq, replicaid = msg.replicaid()]() {
-                            proto::MinBFTMessage msg;
-                            auto &gap_req = *msg.mutable_gap_request();
-                            gap_req.set_seq(seq);
-                            transport->SendMessageToReplica(this, replicaid,
-                                                            PBMessage(msg));
-                          }));
+          RDebug("sched timer for gap replicaid = %u, seq = %lu",
+                 msg.replicaid(), seq);
+          timer_map[msg.replicaid()][seq] =
+              std::unique_ptr<Timeout>(new Timeout(
+                  transport, 1000,
+                  [this, seq = seq, replicaid = msg.replicaid()]() {
+                    RWarning("gap request for replicaid = %u, seq = %lu",
+                             replicaid, seq);
+                    proto::MinBFTMessage msg;
+                    auto &gap_req = *msg.mutable_gap_request();
+                    gap_req.set_seq(seq);
+                    transport->SendMessageToReplica(this, replicaid,
+                                                    PBMessage(msg));
+                  }));
           timer_map[msg.replicaid()][seq]->Start();
         }
       }
       break;
     }
+    msg_queue[msg.replicaid()].erase(iter);
     last_ui[msg.replicaid()] += 1;
     switch (next_msg.msg_case()) {
       case proto::FromReplicaMessage::kPrepare:
@@ -154,7 +159,7 @@ void MinBFTReplica::HandleCommit(proto::FromReplicaMessage &big_msg) {
     return;
   }
 
-  RDebug("Committed for op %lu", big_msg.ui().id());
+  RDebug("Committed for op %lu", entry->viewstamp.opnum);
   entry->state = LOG_STATE_COMMITTED;
   TryExecute();
 }

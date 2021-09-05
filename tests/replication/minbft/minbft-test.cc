@@ -48,12 +48,11 @@ TEST(MinBFT, SetUp) {
   ASSERT_EQ(app[2].LastOp(), "hello");
 }
 
-TEST(MinBFT, 100Op) {
+TEST(DISABLED_MinBFT, 100Op) {
   SimulatedTransport t;
   Secp256k1Signer signer;
   Secp256k1Verifier verifier(signer);
   HomogeneousSecurity s(signer, verifier);
-  // NopSecurity s;
   PbftTestApp app[3];
   MinBFTReplica replica0(c, 0, true, &t, s, &app[0]);
   MinBFTReplica replica1(c, 1, true, &t, s, &app[1]);
@@ -75,4 +74,43 @@ TEST(MinBFT, 100Op) {
   client.Invoke("test0", upcall);
   t.Timer(0, [&]() { ASSERT(false); });
   t.Run();
+}
+
+using filter_t = std::function<bool(TransportReceiver *, std::pair<int, int>,
+                                    TransportReceiver *, std::pair<int, int>,
+                                    Message &, uint64_t &delay)>;
+
+filter_t DisableRx(TransportReceiver *r) {
+  return [=](TransportReceiver *src, pair<int, int> srcId,
+             TransportReceiver *dst, pair<int, int> dstId, Message &msg,
+             uint64_t &delay) { return dst != r; };
+}
+
+filter_t DisableTraffic(TransportReceiver *src, TransportReceiver *dst) {
+  return [=](TransportReceiver *src_, pair<int, int> srcId,
+             TransportReceiver *dst_, pair<int, int> dstId, Message &msg,
+             uint64_t &delay) { return src != src_ || dst != dst_; };
+}
+
+TEST(MinBFT, Gap) {
+  SimulatedTransport t;
+  Secp256k1Signer signer;
+  Secp256k1Verifier verifier(signer);
+  HomogeneousSecurity s(signer, verifier);
+  PbftTestApp app[3];
+  MinBFTReplica replica0(c, 0, true, &t, s, &app[0]);
+  MinBFTReplica replica1(c, 1, true, &t, s, &app[1]);
+  MinBFTReplica replica2(c, 2, true, &t, s, &app[2]);
+  MinBFTClient client(c, ReplicaAddress("localhost", "0"), &t, s);
+  t.AddFilter(1, DisableRx(&replica2));
+  bool done = false;
+  client.Invoke("op1", [&](const string &req, const string &reply) {
+    t.RemoveFilter(1);
+    t.AddFilter(2, DisableRx(&replica1));
+    client.Invoke("op2",
+                  [&](const string &req, const string &reply) { done = true; });
+  });
+  t.Timer(1200, [&]() { t.CancelAllTimers(); });
+  t.Run();
+  ASSERT_TRUE(done);
 }

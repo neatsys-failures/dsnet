@@ -105,6 +105,7 @@ class MinBFTReplica : public Replica {
         break;
       case proto::MinBFTMessage::kGapRequest:
         HandleGapRequest(remote, *msg.mutable_gap_request());
+        break;
       default:
         RPanic("Unexpected message case: %d", msg.msg_case());
     }
