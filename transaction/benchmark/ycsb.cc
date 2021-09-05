@@ -141,10 +141,6 @@ client_thread(int tid, KVClient *kvClient, TxnClient *txnClient, Client *protoCl
     if (++n_finished == n_threads) {
         transport->Stop();
     }
-    delete kvClient; // destructor of kvClient will deallocate txnClient
-    if (protoClient) {
-        delete protoClient;
-    }
 }
 
 int
@@ -430,6 +426,8 @@ main(int argc, char **argv)
     throughputs.resize(n_threads);
     latency_dist.resize(n_threads);
     std::vector<std::thread> threads;
+    std::vector<KVClient *> kvclients;
+    std::vector<Client *> protoclients;
     for (int i = 0; i < n_threads; i++) {
         KVClient *kvClient = nullptr;
         TxnClient *txnClient = nullptr;
@@ -461,12 +459,22 @@ main(int argc, char **argv)
             txnClient = new TxnClientCommon(transport, protoClient);
         }
         kvClient = new KVClient(txnClient, nShards);
+        kvclients.push_back(kvClient);
+        if (protoClient) {
+            protoclients.push_back(protoClient);
+        }
         threads.push_back(std::thread(client_thread,
                     i, kvClient, txnClient, protoClient));
     }
     transport->Run();
     for (auto &t : threads) {
         t.join();
+    }
+    for (KVClient *c : kvclients) {
+        delete c; // destructor of kvClient will deallocate txnClient
+    }
+    for (Client *c : protoclients) {
+        delete c;
     }
 
     // Combine results
