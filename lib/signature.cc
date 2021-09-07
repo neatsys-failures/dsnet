@@ -12,6 +12,7 @@
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
+#include <openssl/md5.h>
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
 #include <openssl/sha.h>
@@ -196,4 +197,18 @@ bool dsnet::Secp256k1Verifier::Verify(const std::string &message,
           reinterpret_cast<const unsigned char *>(signature.c_str())))
     return false;
   return secp256k1_ecdsa_verify(ctx, &data, hash, pubKey);
+}
+
+extern "C" int halfsiphash(const void *in, const size_t inlen, const void *k,
+                           uint8_t *out, const size_t outlen);
+
+bool dsnet::HalfSipHashSigner::Sign(const std::string &message,
+                                    std::string &signature) const {
+  unsigned char digest[MD5_DIGEST_LENGTH];
+  MD5(reinterpret_cast<const unsigned char *>(message.c_str()), message.size(),
+      digest);
+  uint8_t out[4];
+  halfsiphash(digest, MD5_DIGEST_LENGTH, k, out, 4);
+  signature.assign(reinterpret_cast<char *>(out), 4);
+  return true;
 }

@@ -2,6 +2,8 @@
 
 #include "replication/tombft/message.h"
 
+#include <openssl/md5.h>
+
 #include <cstring>
 
 #include "lib/assert.h"
@@ -26,6 +28,17 @@ void TomBFTMessage::Parse(const void *buf, size_t size) {
   }
 
   pb_msg.Parse(bytes, size);
+}
+
+void TomBFTMessage::FillDigest() {
+  size_t buf_len = pb_msg.SerializedSize();
+  unsigned char *buf = new unsigned char[buf_len];
+  pb_msg.Serialize(buf);
+  MD5(buf, buf_len, meta.sig_list[0].digest);
+  for (int i = 1; i < 4; i += 1) {
+    memcpy(meta.sig_list[i].digest, meta.sig_list[0].digest, MD5_DIGEST_LENGTH);
+  }
+  delete[] buf;
 }
 
 void TomBFTMessage::Serialize(void *buf) const {

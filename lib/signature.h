@@ -82,6 +82,27 @@ class Secp256k1Verifier : public Verifier {
               const std::string &signature) const override;
 };
 
+class HalfSipHashSigner : public Signer {
+  const void *k;
+
+ public:
+  HalfSipHashSigner(const void *k) : k(k) {}
+  bool Sign(const std::string &message, std::string &signature) const override;
+};
+
+class HalfSipHashVerifier : public Verifier {
+  const HalfSipHashSigner &s;
+
+ public:
+  HalfSipHashVerifier(const HalfSipHashSigner &s) : s(s) {}
+  bool Verify(const std::string &message,
+              const std::string &signature) const override {
+    std::string sig2;
+    s.Sign(message, sig2);
+    return sig2 == signature.substr(0, 4);
+  }
+};
+
 // each BFT replica/client should accept a &Security in its constructor so
 // proper signature impl can be injected
 class Security {

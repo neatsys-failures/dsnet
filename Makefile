@@ -177,14 +177,14 @@ DEPFLAGS = -M -MF ${@:.o=.d} -MP -MT $@ -MG
 # $(call add-CFLAGS,$(TEST_SRCS),$(CHECK_CFLAGS))
 OBJS := $(SRCS:%.cc=.obj/%.o) $(TEST_SRCS:%.cc=.obj/%.o) $(GTEST_SRCS:%.cc=.obj/%.o)
 
-define compile
-	@mkdir -p $(dir $@)
-	$(call trace,$(1),$<,\
-	  $(CC) -iquote. $(CFLAGS) $(CFLAGS-$<) $(2) $(DEPFLAGS) -E $<)
-	$(Q)$(CC) -iquote. $(CFLAGS) $(CFLAGS-$<) $(2) -E -o .obj/$*.t $<
-	-o .obj/$*.i .obj/$*.t
-	$(Q)$(CC) $(CFLAGS) $(CFLAGS-$<) $(2) -c -o $@ .obj/$*.i
-endef
+# define compile
+# 	@mkdir -p $(dir $@)
+# 	$(call trace,$(1),$<,\
+# 	  $(CC) -iquote. $(CFLAGS) $(CFLAGS-$<) $(2) $(DEPFLAGS) -E $<)
+# 	$(Q)$(CC) -iquote. $(CFLAGS) $(CFLAGS-$<) $(2) -E -o .obj/$*.t $<
+# 	-o .obj/$*.i .obj/$*.t
+# 	$(Q)$(CC) $(CFLAGS) $(CFLAGS-$<) $(2) -c -o $@ .obj/$*.i
+# endef
 
 define compilecxx
 	@mkdir -p $(dir $@)

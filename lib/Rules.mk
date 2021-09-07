@@ -27,4 +27,13 @@ LIB-udptransport := $(o)udptransport.o $(LIB-transport)
 
 LIB-dpdktransport := $(o)dpdktransport.o $(LIB-transport)
 
-LIB-signature := $(o)signature.o
+LIB-signature := $(o)signature.o $(o)halfsiphash.o
+
+define compile
+	@mkdir -p $(dir $@)
+	$(call trace,$(1),$<,\
+	  $(CC) -iquote. $(CFLAGS) $(CFLAGS-$<) $(2) $(DEPFLAGS) -E $<)
+	$(Q)$(CC) -iquote. $(CFLAGS) $(CFLAGS-$<) $(2) -c -o $@ $<
+endef
+$(o)halfsiphash.o: $(d)halfsiphash.c
+	$(call compile,CC,)

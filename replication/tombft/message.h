@@ -2,14 +2,14 @@
 
 #include <arpa/inet.h>
 #include <endian.h>
-#include <openssl/sha.h>
+#include <openssl/md5.h>
 
 #include "common/pbmessage.h"
 #include "lib/message.h"
 #include "lib/signature.h"
 
-#define HMAC_LENGTH SHA256_DIGEST_LENGTH
-#define DIGEST_LENGTH SHA256_DIGEST_LENGTH
+#define HMAC_LENGTH MD5_DIGEST_LENGTH
+#define DIGEST_LENGTH MD5_DIGEST_LENGTH
 
 #define HTON_SESSNUM(n) htons(n)
 #define NTOH_SESSNUM(n) ntohs(n)
@@ -24,14 +24,16 @@ class TomBFTMessage : public Message {
   struct __attribute__((packed)) Header {
     std::uint16_t sess_num;
     std::uint64_t msg_num;
+    char _unused[16];
     union {
-      char digest[16];
+      unsigned char digest[16];
       char hmac[16];
     } sig_list[4];
   };
   Header meta;
 
-  TomBFTMessage(::google::protobuf::Message &msg, bool sequencing = false)
+  TomBFTMessage(::google::protobuf::Message &msg, bool sequencing = false,
+                bool digest = true)
       : pb_msg(PBMessage(msg)), sequencing(sequencing) {
     meta.sess_num = 0;
   }
@@ -54,6 +56,8 @@ class TomBFTMessage : public Message {
   }
   virtual void Parse(const void *buf, size_t size) override;
   virtual void Serialize(void *buf) const override;
+
+  void FillDigest();
 
  private:
   PBMessage pb_msg;

@@ -112,8 +112,9 @@ TEST(TomBFT, 1OpSign) {
   SimulatedTransport tp;
   Secp256k1Signer signer;
   Secp256k1Verifier verifier(signer);
-  Signer seq_signer;
-  Verifier seq_verifier;
+  uint8_t k[8] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
+  HalfSipHashSigner seq_signer(k);
+  HalfSipHashVerifier seq_verifier(seq_signer);
   HomogeneousSecurity s(signer, verifier, seq_signer, seq_verifier);
   TestApp app[4];
   unique_ptr<TomBFTReplica> replica[4];
