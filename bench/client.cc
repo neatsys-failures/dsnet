@@ -44,6 +44,7 @@
 #include "lib/udptransport.h"
 #include "replication/fastpaxos/client.h"
 #include "replication/nopaxos/client.h"
+#include "replication/hydranopaxos/client.h"
 #include "replication/pbft/client.h"
 #include "replication/unreplicated/client.h"
 #include "replication/vr/client.h"
@@ -54,7 +55,8 @@ static void Usage(const char *progName) {
           "usage: %s [-n requests] [-t threads] [-w warmup-secs] [-s "
           "stats-file] [-d delay-ms] [-u duration-sec] [-p udp|dpdk] [-v "
           "device] [-x device-port] [-z transport-cmdline] -c conf-file -h "
-          "host-address -m unreplicated|vr|fastpaxos|nopaxos\n",
+          "host-address -m unreplicated|vr|fastpaxos|nopaxos|hydranopaxos "
+          "[-H num-sequencers]\n",
           progName);
   exit(1);
 }
@@ -71,6 +73,7 @@ int main(int argc, char **argv) {
   int tputInterval = 0;
   std::string host, dev, transport_cmdline;
   int dev_port = 0;
+  seqid_t numSequencers = 1;
 
   enum {
     PROTO_UNKNOWN,
@@ -79,6 +82,7 @@ int main(int argc, char **argv) {
     PROTO_FASTPAXOS,
     PROTO_SPEC,
     PROTO_NOPAXOS,
+    PROTO_HYDRANOPAXOS,
     PROTO_PBFT,
     PROTO_TOMBFT,
   } proto = PROTO_UNKNOWN;
@@ -89,7 +93,7 @@ int main(int argc, char **argv) {
 
   // Parse arguments
   int opt;
-  while ((opt = getopt(argc, argv, "c:d:h:s:m:t:i:u:p:v:x:z:")) != -1) {
+  while ((opt = getopt(argc, argv, "c:d:h:s:m:t:i:u:p:v:x:z:H:")) != -1) {
     switch (opt) {
       case 'c':
         configPath = optarg;
@@ -136,6 +140,8 @@ int main(int argc, char **argv) {
           proto = PROTO_FASTPAXOS;
         } else if (strcasecmp(optarg, "nopaxos") == 0) {
           proto = PROTO_NOPAXOS;
+        } else if (strcasecmp(optarg, "hydranopaxos") == 0) {
+            proto = PROTO_HYDRANOPAXOS;
         } else if (strcasecmp(optarg, "tombft") == 0) {
           proto = PROTO_TOMBFT;
         } else if (strcasecmp(optarg, "pbft") == 0) {
@@ -189,6 +195,16 @@ int main(int argc, char **argv) {
 
       case 'z':
         transport_cmdline = std::string(optarg);
+        break;
+      case 'H':
+        char *strtolPtr;
+        numSequencers = strtoul(optarg, &strtolPtr, 10);
+        if ((*optarg == '\0') || (*strtolPtr != '\0') || (numSequencers < 0))
+        {
+            fprintf(stderr,
+                    "option -H requires a numeric arg\n");
+            Usage(argv[0]);
+        }
         break;
 
       default:
@@ -258,6 +274,10 @@ int main(int argc, char **argv) {
 
       case PROTO_NOPAXOS:
         client = new dsnet::nopaxos::NOPaxosClient(config, addr, transport);
+        break;
+
+      case PROTO_HYDRANOPAXOS:
+        client = new dsnet::hydranopaxos::HydraNOPaxosClient(config, addr, transport, numSequencers);
         break;
 
       case PROTO_PBFT:

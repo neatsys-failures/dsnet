@@ -44,6 +44,7 @@
 #include "lib/udptransport.h"
 #include "replication/fastpaxos/replica.h"
 #include "replication/nopaxos/replica.h"
+#include "replication/hydranopaxos/replica.h"
 #include "replication/pbft/replica.h"
 #include "replication/tombft/replica.h"
 #include "replication/unreplicated/replica.h"
@@ -53,7 +54,7 @@ static void Usage(const char *progName) {
   fprintf(stderr,
           "usage: %s -c conf-file [-R] -i replica-index -m "
           "unreplicated|vr|fastpaxos|nopaxos [-b batch-size] [-d "
-          "packet-drop-rate] [-r packet-reorder-rate]\n",
+          "packet-drop-rate] [-r packet-reorder-rate] [-H num-sequencers]\n",
           progName);
   exit(1);
 }
@@ -65,9 +66,9 @@ int main(int argc, char **argv) {
   double reorderRate = 0.0;
   int batchSize = 1;
   bool recover = false;
+  seqid_t numSequencers = 1;
 
   dsnet::AppReplica *nullApp = new dsnet::AppReplica();
-
   enum {
     PROTO_UNKNOWN,
     PROTO_UNREPLICATED,
@@ -75,13 +76,14 @@ int main(int argc, char **argv) {
     PROTO_FASTPAXOS,
     PROTO_SPEC,
     PROTO_NOPAXOS,
+    PROTO_HYDRANOPAXOS,
     PROTO_PBFT,
     PROTO_TOMBFT,
   } proto = PROTO_UNKNOWN;
 
   // Parse arguments
   int opt;
-  while ((opt = getopt(argc, argv, "b:c:d:i:m:r:R:tw:")) != -1) {
+  while ((opt = getopt(argc, argv, "b:c:d:i:m:r:R:tw:H:")) != -1) {
     switch (opt) {
       case 'b': {
         char *strtolPtr;
@@ -127,6 +129,8 @@ int main(int argc, char **argv) {
           proto = PROTO_FASTPAXOS;
         } else if (strcasecmp(optarg, "nopaxos") == 0) {
           proto = PROTO_NOPAXOS;
+        } else if (strcasecmp(optarg, "hydranopaxos") == 0) {
+          proto = PROTO_HYDRANOPAXOS;
         } else if (strcasecmp(optarg, "pbft") == 0) {
           proto = PROTO_PBFT;
         } else if (strcasecmp(optarg, "tombft") == 0) {
@@ -151,6 +155,19 @@ int main(int argc, char **argv) {
       case 'R':
         recover = true;
         break;
+
+      case 'H':
+      {
+        char *strtolPtr;
+        numSequencers = strtoul(optarg, &strtolPtr, 10);
+        if ((*optarg == '\0') || (*strtolPtr != '\0') || (numSequencers < 0))
+        {
+            fprintf(stderr,
+                    "option -i requires a numeric arg\n");
+            Usage(argv[0]);
+        }
+        break;
+      }
 
       default:
         fprintf(stderr, "Unknown argument %s\n", argv[optind]);
@@ -220,6 +237,11 @@ int main(int argc, char **argv) {
     case PROTO_NOPAXOS:
       replica = new dsnet::nopaxos::NOPaxosReplica(config, index, !recover,
                                                    &transport, nullApp);
+      break;
+
+    case PROTO_HYDRANOPAXOS:
+      replica = new dsnet::hydranopaxos::HydraNOPaxosReplica(config, index, !recover,
+                                                     &transport, nullApp, numSequencers);
       break;
 
     case PROTO_PBFT:
