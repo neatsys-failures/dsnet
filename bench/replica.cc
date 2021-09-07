@@ -42,13 +42,14 @@
 #include "lib/configuration.h"
 #include "lib/signature.h"
 #include "lib/udptransport.h"
+#include "nistore/server.h"
 #include "replication/fastpaxos/replica.h"
+#include "replication/minbft/replica.h"
 #include "replication/nopaxos/replica.h"
 #include "replication/pbft/replica.h"
 #include "replication/tombft/replica.h"
 #include "replication/unreplicated/replica.h"
 #include "replication/vr/replica.h"
-#include "replication/minbft/replica.h"
 
 static void Usage(const char *progName) {
   fprintf(stderr,
@@ -67,7 +68,7 @@ int main(int argc, char **argv) {
   int batchSize = 1;
   bool recover = false;
 
-  dsnet::AppReplica *nullApp = new dsnet::AppReplica();
+  // dsnet::AppReplica *nullApp = new dsnet::AppReplica();
 
   enum {
     PROTO_UNKNOWN,
@@ -80,11 +81,17 @@ int main(int argc, char **argv) {
     PROTO_TOMBFT,
     PROTO_MINBFT,
   } proto = PROTO_UNKNOWN;
+  string app = "null";
 
   // Parse arguments
   int opt;
-  while ((opt = getopt(argc, argv, "b:c:d:i:m:r:R:tw:")) != -1) {
+  while ((opt = getopt(argc, argv, "a:b:c:d:i:m:r:R:tw:")) != -1) {
     switch (opt) {
+      case 'a': {
+        app = optarg;
+        break;
+      }
+
       case 'b': {
         char *strtolPtr;
         batchSize = strtoul(optarg, &strtolPtr, 10);
@@ -200,11 +207,21 @@ int main(int argc, char **argv) {
   dsnet::Replica *replica;
   dsnet::Secp256k1Signer signer;
   dsnet::Secp256k1Verifier verifier(signer);
-  dsnet::Signer seq_signer;
-  dsnet::Verifier seq_verifier;
+  uint8_t k[8] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
+  dsnet::HalfSipHashSigner seq_signer(k);
+  dsnet::HalfSipHashVerifier seq_verifier(seq_signer);
   dsnet::HomogeneousSecurity security(signer, verifier, seq_signer,
                                       seq_verifier);
   // dsnet::NopSecurity security;
+  dsnet::AppReplica *nullApp;
+  if (app == "null") {
+    nullApp = new dsnet::AppReplica();
+  } else if (app == "nistore") {
+    nullApp = new nistore::Server(false);
+  } else {
+    Panic("unknown app %s", app.c_str());
+  }
+
   switch (proto) {
     case PROTO_UNREPLICATED:
       replica = new dsnet::unreplicated::UnreplicatedReplica(
