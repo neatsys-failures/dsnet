@@ -19,6 +19,7 @@
 #include "transaction/common/frontend/txnclientcommon.h"
 #include "transaction/apps/kvstore/client.h"
 #include "transaction/eris/client.h"
+#include "transaction/hydraeris/client.h"
 #include "transaction/granola/client.h"
 #include "transaction/unreplicated/client.h"
 #include "transaction/spanner/client.h"
@@ -62,6 +63,7 @@ main(int argc, char **argv)
     set<uint64_t> partition_count;
     phase_t phase = WARMUP;
     int tputInterval = 0;
+    seqid_t numSequencers = 1;
 
     KVClient *kvClient;
     TxnClient *txnClient;
@@ -71,7 +73,7 @@ main(int argc, char **argv)
     protomode_t mode = PROTO_UNKNOWN;
 
     int opt;
-    while ((opt = getopt(argc, argv, "c:d:h:N:l:w:k:f:m:z:p:g:i:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:d:h:N:l:w:k:f:m:z:p:g:i:H:")) != -1) {
         switch (opt) {
         case 'c': // Configuration path
         {
@@ -148,6 +150,8 @@ main(int argc, char **argv)
         {
             if (strcasecmp(optarg, "eris") == 0) {
                 mode = PROTO_ERIS;
+            } else if (strcasecmp(optarg, "hydraeris") == 0) {
+                mode = PROTO_HYDRAERIS;
             } else if (strcasecmp(optarg, "granola") == 0) {
                 mode = PROTO_GRANOLA;
             } else if (strcasecmp(optarg, "unreplicated") == 0) {
@@ -209,7 +213,17 @@ main(int argc, char **argv)
             }
             break;
         }
-
+        case 'H':
+        {
+            char *strtolPtr;
+            numSequencers = strtoul(optarg, &strtolPtr, 10);
+            if ((*optarg == '\0') || (*strtolPtr != '\0') || (numSequencers < 0))
+            {
+                fprintf(stderr,
+                        "option -H requires a numeric arg\n");
+            }
+            break;
+        }
         default:
             fprintf(stderr, "Unknown argument %s\n", argv[optind]);
             break;
@@ -247,6 +261,10 @@ main(int argc, char **argv)
     switch (mode) {
     case PROTO_ERIS: {
         protoClient = new eris::ErisClient(config, addr, transport);
+        break;
+    }
+    case PROTO_HYDRAERIS: {
+        protoClient = new hydraeris::HydraErisClient(config, addr, transport, numSequencers);
         break;
     }
     case PROTO_GRANOLA: {

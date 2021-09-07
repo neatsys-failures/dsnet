@@ -10,6 +10,7 @@ enum phase_t {
 enum protomode_t {
     PROTO_UNKNOWN,
     PROTO_ERIS,
+    PROTO_HYDRAERIS,
     PROTO_GRANOLA,
     PROTO_UNREPLICATED,
     PROTO_SPANNER,

@@ -20,6 +20,7 @@
 #include "transaction/common/frontend/txnclientcommon.h"
 #include "transaction/apps/kvstore/client.h"
 #include "transaction/eris/client.h"
+#include "transaction/hydraeris/client.h"
 #include "transaction/granola/client.h"
 #include "transaction/unreplicated/client.h"
 #include "transaction/spanner/client.h"
@@ -54,6 +55,7 @@ static int rmwportion = 0;
 static bool indep = true;
 static dsnet::Transport *transport;
 static int n_threads = 1;
+static seqid_t numSequencers = 1;
 
 static std::vector<uint64_t> total_latency;
 static std::vector<uint64_t> commit_transactions;
@@ -157,7 +159,7 @@ main(int argc, char **argv)
     enum { TRANSPORT_UDP, TRANSPORT_DPDK } transport_type = TRANSPORT_UDP;
 
     int opt;
-    while ((opt = getopt(argc, argv, "c:d:e:f:gh:i:k:m:N:p:r:s:t:u:v:w:x:z:Z:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:d:e:f:gh:i:k:m:N:p:r:s:t:u:v:w:x:z:Z:H:")) != -1) {
         switch (opt) {
         case 'c': // Configuration path
         {
@@ -252,6 +254,8 @@ main(int argc, char **argv)
         {
             if (strcasecmp(optarg, "eris") == 0) {
                 mode = PROTO_ERIS;
+            } else if (strcasecmp(optarg, "hydraeris") == 0) {
+                mode = PROTO_HYDRAERIS;
             } else if (strcasecmp(optarg, "granola") == 0) {
                 mode = PROTO_GRANOLA;
             } else if (strcasecmp(optarg, "unreplicated") == 0) {
@@ -338,6 +342,18 @@ main(int argc, char **argv)
             break;
         }
 
+        case 'H':
+        {
+            char *strtolPtr;
+            numSequencers = strtoul(optarg, &strtolPtr, 10);
+            if ((*optarg == '\0') || (*strtolPtr != '\0') || (numSequencers < 0))
+            {
+                fprintf(stderr,
+                        "option -H requires a numeric arg\n");
+            }
+            break;
+        }
+        
         case 't': // number of benchmark threads
         {
             char *strtolPtr;
@@ -437,6 +453,10 @@ main(int argc, char **argv)
             case PROTO_ERIS:
                 protoClient = new eris::ErisClient(config, addr, transport);
                 break;
+            case PROTO_HYDRAERIS:
+                protoClient = new hydraeris::HydraErisClient(config, addr, transport, numSequencers);
+                break;
+            
             case PROTO_GRANOLA:
                 protoClient = new granola::GranolaClient(config, addr, transport);
                 break;
