@@ -100,7 +100,7 @@ void PbftClient::HandleReply(const TransportAddress &remote,
   copy.set_sig(std::string());
   if (!security.ReplicaVerifier(msg.replicaid())
            .Verify(copy.SerializeAsString(), msg.sig())) {
-    Warning("Received wrong signature");
+    Warning("Received wrong signature from %lu", msg.replicaid());
     return;
   }
 

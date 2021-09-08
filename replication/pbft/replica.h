@@ -143,8 +143,10 @@ class PbftReplica : public Replica {
 
   // core states
   view_t view;
-  opnum_t seqNum;        // only primary use this
-  opnum_t lastExecuted;  // include speculative
+  opnum_t seqNum;         // only primary use this
+  opnum_t lastExecuted;   // include speculative
+  opnum_t committedUpTo;  // everything below is committed (and executed)
+  // everything above is either not executed or only speculativly executed
   Log log;
 
   // readibility helper

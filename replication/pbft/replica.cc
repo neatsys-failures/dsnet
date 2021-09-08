@@ -27,6 +27,7 @@ PbftReplica::PbftReplica(const Configuration &config, int myIdx,
     : Replica(config, 0, myIdx, initialize, transport, app),
       security(sec),
       lastExecuted(0),
+      committedUpTo(0),
       log(false),
       prepareSet(2 * config.f),
       commitSet(2 * config.f + 1) {
@@ -321,10 +322,12 @@ void PbftReplica::TryReachCommitPoint(const proto::Common &msg) {
   if (log.Find(msg.seqnum())->state == LOG_STATE_COMMITTED) return;
 
   if (!CommittedLocal(msg.seqnum(), msg)) return;
+  Assert(!(log.Find(msg.seqnum())->state == LOG_STATE_PREPARED &&
+           msg.seqnum() == lastExecuted + 1));
 
+  // Assert(msg.seqnum() > committedUpTo);
   RDebug(PROTOCOL_FMT, "commit point", msg.view(), msg.seqnum());
   log.SetStatus(msg.seqnum(), LOG_STATE_COMMITTED);
-
   for (auto iter = pendingProposalList.begin();
        iter != pendingProposalList.end(); ++iter) {
     if (iter->seqNum == msg.seqnum()) {
@@ -334,31 +337,26 @@ void PbftReplica::TryReachCommitPoint(const proto::Common &msg) {
     }
   }
 
-  opnum_t executing = msg.seqnum();
-  if (lastExecuted != executing - 1) return;
-  while (auto *entry = static_cast<LogEntry *>(log.Find(executing))) {
-    // speculative case
-    if (entry->state == LOG_STATE_SPECULATIVE) {
-      Assert(clientTable.count(entry->request.clientid()));
-      Assert(clientTable[entry->request.clientid()].lastReqId ==
-             entry->request.clientreqid());
-
-      entry->state = LOG_STATE_COMMITTED;
+  while (auto *entry = log.Find(committedUpTo + 1)) {
+    if (entry->As<LogEntry>().state != LOG_STATE_COMMITTED) break;
+    committedUpTo += 1;
+    if (committedUpTo <= lastExecuted) {
+      // already speculative, just send reply again without spec
       ToClientMessage m = clientTable[entry->request.clientid()].reply;
       m.mutable_reply()->set_speculative(false);
+      m.mutable_reply()->set_sig(string());
+      string sig;
+      security.ReplicaSigner(replicaIdx)
+          .Sign(m.reply().SerializeAsString(), sig);
+      m.mutable_reply()->set_sig(sig);
       transport->SendMessage(
           this, *clientAddressTable[entry->request.clientid()], PBMessage(m));
-      executing += 1;
-      continue;
+    } else {
+      Assert(committedUpTo == lastExecuted + 1);
+      ExecuteEntry(&entry->As<LogEntry>(), false);
+      lastExecuted += 1;
     }
-    // speculative case end
-
-    if (entry->state != LOG_STATE_COMMITTED) break;
-    entry->state = LOG_STATE_COMMITTED;
-    ExecuteEntry(entry, false);
-    executing += 1;
   }
-  lastExecuted = executing - 1;
   TrySpeculative();
 }
 
@@ -366,7 +364,7 @@ void PbftReplica::TrySpeculative() {
   opnum_t executing = lastExecuted + 1;
   while (auto *entry = static_cast<LogEntry *>(log.Find(executing))) {
     Assert(entry->state != LOG_STATE_SPECULATIVE);
-    Assert(entry->state != LOG_STATE_COMMITTED);
+    // Assert(entry->state != LOG_STATE_COMMITTED);
     if (entry->state != LOG_STATE_PREPARED) break;
     RDebug(PROTOCOL_FMT, "spec execution", entry->viewstamp.view,
            entry->viewstamp.opnum);

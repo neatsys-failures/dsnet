@@ -66,6 +66,10 @@ void MinBFTReplica::EnqueueReplicaMessage(proto::FromReplicaMessage &msg) {
   while (msg_queue[msg.replicaid()].size()) {
     auto iter = msg_queue[msg.replicaid()].begin();
     auto next_msg = iter->second;
+    if (next_msg.ui().id() <= last_ui[msg.replicaid()]) {
+      msg_queue[msg.replicaid()].erase(iter);
+      continue;
+    }
     if (next_msg.ui().id() != last_ui[msg.replicaid()] + 1) {
       for (ui_t seq = last_ui[msg.replicaid()] + 1; seq != next_msg.ui().id();
            seq += 1) {

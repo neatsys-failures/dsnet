@@ -312,6 +312,7 @@ int main(int argc, char **argv) {
       agg_ops += benchClients[i]->completedOps;
     }
     Latency_Dump(&sum);
+    // Latency_DumpAll();
 
     Notice("Total throughput is %ld ops/sec", agg_ops / duration);
     enum class Mode { kMedian, k90, k95, k99 };

@@ -171,7 +171,7 @@ filter_t DisableTraffic(TransportReceiver *src, TransportReceiver *dst) {
              uint64_t &delay) { return src != src_ || dst != dst_; };
 }
 
-TEST(Pbft, DISABLED_ResendPrePrepare) {
+TEST(Pbft, ResendPrePrepare) {
   System<1> system;
   Client &client = *system.clients[0];
   bool done = false;
@@ -191,10 +191,11 @@ TEST(Pbft, DISABLED_ResendPrePrepare) {
   });
   system.transport.Timer(1800, [&]() { system.transport.Stop(); });
   system.transport.Run();
-  ASSERT_FALSE(done);
+  // implementation changed, no warmup required any more
+  // ASSERT_FALSE(done);
 
-  system.transport.Timer(800, [&]() { system.transport.Stop(); });
-  system.transport.Run();
+  // system.transport.Timer(800, [&]() { system.transport.Stop(); });
+  // system.transport.Run();
   ASSERT_TRUE(done);
 }
 
@@ -224,7 +225,7 @@ TEST(Pbft, SimpleStateTransfer) {
   ASSERT_TRUE(done);
 }
 
-TEST(Pbft, 10Client10000Op) {
+TEST(Pbft, DISABLED_10Client10000Op) {
   NopSecurity s;
   System<10> system(s);
   Transport &transport = system.transport;
