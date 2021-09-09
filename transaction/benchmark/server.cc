@@ -31,7 +31,6 @@
 #include <sched.h>
 #include "lib/udptransport.h"
 #include "transaction/eris/server.h"
-#include "transaction/hydraeris/server.h"
 #include "transaction/granola/server.h"
 #include "transaction/unreplicated/server.h"
 #include "transaction/spanner/server.h"
@@ -59,11 +58,10 @@ main(int argc, char **argv)
     app_t app = APP_UNKNOWN;
     protomode_t mode = PROTO_UNKNOWN;
     float dropRate = 0.0;
-    seqid_t numSequencers = 1;
 
     // Parse arguments
     int opt;
-    while ((opt = getopt(argc, argv, "c:i:a:m:n:N:w:p:k:f:r:o:d:l:H:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:i:a:m:n:N:w:p:k:f:r:o:d:l")) != -1) {
         switch (opt) {
         case 'c':
             configPath = optarg;
@@ -96,8 +94,6 @@ main(int argc, char **argv)
         {
             if (strcasecmp(optarg, "eris") == 0) {
                 mode = PROTO_ERIS;
-            } else if (strcasecmp(optarg, "hydraeris") == 0) {
-                mode = PROTO_HYDRAERIS;
             } else if (strcasecmp(optarg, "granola") == 0) {
                 mode = PROTO_GRANOLA;
             } else if (strcasecmp(optarg, "unreplicated") == 0) {
@@ -208,18 +204,6 @@ main(int argc, char **argv)
             break;
         }
 
-        case 'H':
-        {
-            char *strtolPtr;
-            numSequencers = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0') || (numSequencers < 0))
-            {
-                fprintf(stderr,
-                        "option -i requires a numeric arg\n");
-            }
-            break;
-        }
-
         default:
             fprintf(stderr, "Unknown argument %s\n", argv[optind]);
         }
@@ -256,7 +240,7 @@ main(int argc, char **argv)
         kvArg.nKeys = nkeys;
         kvArg.myShard = shard_num;
         kvArg.nShards = nshards;
-        if (mode == PROTO_ERIS || mode == PROTO_HYDRAERIS) {
+        if (mode == PROTO_ERIS) {
             kvArg.retryLock = false;
         } else {
             kvArg.retryLock = true;
@@ -268,7 +252,7 @@ main(int argc, char **argv)
         tpccArg.total_warehouses = nshards * warehouses_per_partition;
         tpccArg.warehouses_per_partition = warehouses_per_partition;
         tpccArg.partition_id = shard_num;
-        if (mode == PROTO_ERIS || mode == PROTO_HYDRAERIS || mode == PROTO_GRANOLA || mode == PROTO_UNREPLICATED) {
+        if (mode == PROTO_ERIS || mode == PROTO_GRANOLA || mode == PROTO_UNREPLICATED) {
             tpccArg.locking = false;
         } else {
             tpccArg.locking = true;
@@ -329,21 +313,6 @@ main(int argc, char **argv)
         Configuration fcorConfig(fcorConfigStream);
         protoServer = new eris::ErisServer(config, shard_num, replica_num,
                                            true, transport, txnServer, fcorConfig);
-        break;
-    }
-    case PROTO_HYDRAERIS: {
-        if (!fcorConfigPath) {
-            fprintf(stderr, "hydraeris requires fcor configuration file using -o\n");
-            exit(1);
-        }
-        ifstream fcorConfigStream(fcorConfigPath);
-        if (fcorConfigStream.fail()) {
-            fprintf(stderr, "unable to read configuration file: %s\n", fcorConfigPath);
-            exit(1);
-        }
-        Configuration fcorConfig(fcorConfigStream);
-        protoServer = new hydraeris::HydraErisServer(config, shard_num, replica_num,
-                                           true, transport, txnServer, fcorConfig, numSequencers);
         break;
     }
     case PROTO_GRANOLA: {

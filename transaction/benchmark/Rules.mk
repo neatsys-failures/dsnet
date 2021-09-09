@@ -1,13 +1,13 @@
 d := $(dir $(lastword $(MAKEFILE_LIST)))
 
-SRCS += $(addprefix $(d), terminalClient.cc kvClient.cc tpccClient.cc server.cc fcor.cc hydrafcor.cc ycsb.cc)
+SRCS += $(addprefix $(d), terminalClient.cc kvClient.cc tpccClient.cc server.cc fcor.cc ycsb.cc)
 
 OBJS-all-app-clients := $(OBJS-kvstore-client) $(OBJS-tpcc-client)
 OBJS-all-app-txnservers := $(OBJS-kvstore-txnserver) $(OBJS-tpcc-txnserver)
-OBJS-all-proto-clients := $(OBJS-eris-client) $(OBJS-hydraeris-client) $(OBJS-granola-client) $(OBJS-store-unreplicated-client) \
+OBJS-all-proto-clients := $(OBJS-eris-client) $(OBJS-granola-client) $(OBJS-store-unreplicated-client) \
     $(OBJS-spanner-client) $(OBJS-tapir-client)
-OBJS-all-proto-servers := $(OBJS-eris-server) $(OBJS-hydraeris-server) $(OBJS-granola-server) $(OBJS-store-unreplicated-server) \
-    $(OBJS-spanner-server) $(OBJS-tapir-server) $(OBJS-eris-fcor) $(OBJS-hydraeris-hydrafcor)
+OBJS-all-proto-servers := $(OBJS-eris-server) $(OBJS-granola-server) $(OBJS-store-unreplicated-server) \
+    $(OBJS-spanner-server) $(OBJS-tapir-server) $(OBJS-eris-fcor)
 
 $(d)terminalClient: $(OBJS-all-app-clients) $(OBJS-all-proto-clients) $(LIB-configuration) $(LIB-udptransport) $(o)terminalClient.o
 
@@ -21,9 +21,7 @@ $(d)txnServer: $(OBJS-all-app-txnservers) $(OBJS-all-proto-servers) $(LIB-udptra
 
 $(d)fcor: $(OBJS-eris-fcor) $(OBJS-vr-replica) $(o)fcor.o
 
-$(d)hydrafcor: $(OBJS-hydraeris-hydrafcor) $(OBJS-vr-replica) $(o)hydrafcor.o
-
 $(d)ycsb: $(OBJS-all-app-clients) $(OBJS-all-proto-clients) $(LIB-configuration) \
 		$(LIB-udptransport) $(LIB-dpdktransport) $(LIB-latency) $(o)ycsb.o
 
-BINS += $(d)terminalClient $(d)kvClient $(d)tpccClient $(d)txnServer $(d)fcor $(d)hydrafcor $(d)ycsb
+BINS += $(d)terminalClient $(d)kvClient $(d)tpccClient $(d)txnServer $(d)fcor $(d)ycsb
