@@ -11,11 +11,15 @@ namespace dsnet {
 namespace tombft {
 
 struct TomBFTLogEntry : public LogEntry {
-  std::unique_ptr<TomBFTMessage> msg;
+  proto::Message req_msg;
+  TomBFTMessage::Header meta;
 
-  TomBFTLogEntry(viewstamp_t vs, LogEntryState state, const Request &req,
-                 const TomBFTMessage &msg)
-      : LogEntry(vs, state, req), msg(msg.Clone()) {}
+  TomBFTLogEntry(viewstamp_t vs, LogEntryState state,
+                 const proto::Message &req_msg,
+                 const TomBFTMessage::Header &meta)
+      : LogEntry(vs, state, req_msg.request().req()),
+        req_msg(req_msg),
+        meta(meta) {}
 };
 
 class TomBFTReplica : public Replica {
@@ -31,6 +35,7 @@ class TomBFTReplica : public Replica {
  private:
   void HandleRequest(const TransportAddress &remote, proto::Message &m,
                      TomBFTMessage::Header &meta);
+  void HandleQuery(const TransportAddress &remote, proto::Query &msg);
 
   const Security &security;
   viewstamp_t vs;

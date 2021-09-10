@@ -76,10 +76,14 @@ int halfsiphash(const void *in, const size_t inlen, const void *k, uint8_t *out,
     const unsigned char *kk = (const unsigned char *)k;
 
     assert((outlen == 4) || (outlen == 8));
-    uint32_t v0 = 0;
-    uint32_t v1 = 0;
-    uint32_t v2 = UINT32_C(0x6c796765);
-    uint32_t v3 = UINT32_C(0x74656462);
+    // uint32_t v0 = 0;
+    // uint32_t v1 = 0;
+    // uint32_t v2 = UINT32_C(0x6c796765);
+    // uint32_t v3 = UINT32_C(0x74656462);
+    uint32_t v0 = 0x70736575U;
+    uint32_t v1 = 0x6e646f6dU;
+    uint32_t v2 = 0x6e657261U;
+    uint32_t v3 = 0x79746573U;
     uint32_t k0 = U8TO32_LE(kk);
     uint32_t k1 = U8TO32_LE(kk + 4);
     uint32_t m;

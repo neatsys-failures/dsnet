@@ -53,13 +53,17 @@ void TomBFTReplica::HandleRequest(const TransportAddress &remote,
     return;
   }
 
+  if (vs.msgnum == 0) {
+    vs.msgnum = meta.msg_num - 1;  // Jialin's hack
+  }
   if (meta.msg_num != vs.msgnum + 1) {
     NOT_IMPLEMENTED();  // slow path
   }
 
-  vs.msgnum = vs.opnum = meta.msg_num;
+  vs.msgnum += 1;
+  vs.opnum += 1;
   // TODO
-  log.Append(new TomBFTLogEntry(vs, LOG_STATE_EXECUTED, m.request().req(), m));
+  log.Append(new TomBFTLogEntry(vs, LOG_STATE_EXECUTED, m, meta));
 
   proto::Message reply_msg;
   reply_msg.mutable_reply()->set_view(vs.view);
@@ -77,6 +81,31 @@ void TomBFTReplica::HandleRequest(const TransportAddress &remote,
   TransportAddress *client_addr =
       transport->LookupAddress(ReplicaAddress(m.request().req().clientaddr()));
   transport->SendMessage(this, *client_addr, TomBFTMessage(reply_msg));
+}
+
+void TomBFTReplica::HandleQuery(const TransportAddress &remote,
+                                proto::Query &msg) {
+  if (configuration.GetLeaderIndex(vs.view) != replicaIdx) {
+    RWarning("Unexpected Query");
+    return;
+  }
+  if (!security.ReplicaVerifier(msg.replicaid())
+           .Verify(msg.SerializeAsString(), msg.sig())) {
+    RWarning("Incorrect Query signature");
+    return;
+  }
+  // TODO find by message number
+  auto *e = log.Find(msg.opnum());
+  if (!e) {
+    // TODO gap
+  }
+  auto &entry = e->As<TomBFTLogEntry>();
+  proto::Message m;
+  auto &query_reply = *m.mutable_query_reply();
+  query_reply.set_view(vs.view);
+  query_reply.set_opnum(msg.opnum());
+  *query_reply.mutable_req() = entry.req_msg;
+  query_reply.set_hmac_vec(0, entry.meta.sig_list[0].hmac);
 }
 
 }  // namespace tombft

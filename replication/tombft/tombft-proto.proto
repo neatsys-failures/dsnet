@@ -8,6 +8,14 @@ message Message {
     oneof msg {
         RequestMessage request = 1;
         ReplyMessage reply = 2;
+        Query query = 3;
+        QueryReply query_reply = 4;
+        GapFindMessage gap_find_message = 5;
+        GapRecvMessage gap_recv_message = 6;
+        GapDropMessage gap_drop_message = 7;
+        GapDecision gap_decision = 8;
+        GapPrepare gap_prepare = 9;
+        GapCommit gap_commit = 10;
     }
 }
 
@@ -28,33 +36,36 @@ message ReplyMessage {
 message Query {
     required uint64 view = 1;
     required uint64 opnum = 2;
-    required bytes sig = 3;
+    required uint64 replicaid = 3;
+    required bytes sig = 4;
 }
 message QueryReply {
     required uint64 view = 1;
     required uint64 opnum = 2;
-    required RequestMessage req = 3;
-    required uint64 msgnum = 4;
-    repeated bytes hmac_vec = 5;
+    required Message req = 3;
+    repeated bytes hmac_vec = 4;
+    required uint64 replicaid = 5;
     required bytes sig = 6;
 }
 message GapFindMessage {
     required uint64 view = 1;
     required uint64 opnum = 2;
-    required bytes sig = 3;
+    required uint64 replicaid = 3;
+    required bytes sig = 4;
 }
 message GapRecvMessage {
     required uint64 view = 1;
     required uint64 opnum = 2;
-    required RequestMessage req = 3;
-    required uint64 msgnum = 4;
-    repeated bytes hmac_vec = 5;
+    required Message req = 3;
+    repeated bytes hmac_vec = 4;
+    required uint64 replicaid = 5;
     required bytes sig = 6;
 }
 message GapDropMessage {
     required uint64 view = 1;
     required uint64 opnum = 2;
-    required bytes sig = 3;
+    required uint64 replicaid = 3;
+    required bytes sig = 4;
 }
 message GapDecision {
     required uint64 view = 1;
@@ -66,17 +77,20 @@ message GapDecision {
         QuorumCert gap_recv_message = 3;
         GapDropMessage gap_drop_message = 4;
     }
-    required bytes sig = 5;
+    required uint64 replicaid = 5;
+    required bytes sig = 6;
 }
 message GapPrepare {
     required uint64 view = 1;
     required uint64 opnum = 2;
     required bool recv = 3;
-    required bytes sig = 4;
+    required uint64 replicaid = 4;
+    required bytes sig = 5;
 }
 message GapCommit {
     required uint64 view = 1;
     required uint64 opnum = 2;
     required bool recv = 3;
-    required bytes sig = 4;
+    required uint64 replicaid = 4;
+    required bytes sig = 5;
 }
