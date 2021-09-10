@@ -29,6 +29,7 @@ class TomBFTSequencer : public Sequencer {
     header->msg_num = HTON_MSGNUM(msg_num);
 
     std::string msg;
+    // FIXME signature should cover message number
     msg.assign(reinterpret_cast<char *>(buf) + sizeof(TomBFTMessage::Header),
                size - sizeof(TomBFTMessage::Header));
     for (int i = 0; i < 4; i += 1) {  // TODO configurable replica number

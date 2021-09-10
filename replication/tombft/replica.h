@@ -29,10 +29,8 @@ class TomBFTReplica : public Replica {
                       size_t size) override;
 
  private:
-  void HandleRequest(const proto::RequestMessage &msg,
-                     const TransportAddress &remote,
-                     const TomBFTMessage::Header &meta, const TomBFTMessage &m,
-                     const proto::Message &proto_msg);
+  void HandleRequest(const TransportAddress &remote, proto::Message &m,
+                     TomBFTMessage::Header &meta);
 
   const Security &security;
   viewstamp_t vs;

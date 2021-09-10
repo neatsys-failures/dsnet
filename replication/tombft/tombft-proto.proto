@@ -24,3 +24,59 @@ message ReplyMessage {
     required bytes reply = 5;
     required bytes sig = 6;    
 }
+
+message Query {
+    required uint64 view = 1;
+    required uint64 opnum = 2;
+    required bytes sig = 3;
+}
+message QueryReply {
+    required uint64 view = 1;
+    required uint64 opnum = 2;
+    required RequestMessage req = 3;
+    required uint64 msgnum = 4;
+    repeated bytes hmac_vec = 5;
+    required bytes sig = 6;
+}
+message GapFindMessage {
+    required uint64 view = 1;
+    required uint64 opnum = 2;
+    required bytes sig = 3;
+}
+message GapRecvMessage {
+    required uint64 view = 1;
+    required uint64 opnum = 2;
+    required RequestMessage req = 3;
+    required uint64 msgnum = 4;
+    repeated bytes hmac_vec = 5;
+    required bytes sig = 6;
+}
+message GapDropMessage {
+    required uint64 view = 1;
+    required uint64 opnum = 2;
+    required bytes sig = 3;
+}
+message GapDecision {
+    required uint64 view = 1;
+    required uint64 opnum = 2;
+    message QuorumCert {
+        repeated GapRecvMessage vec = 1;
+    }
+    oneof decision {
+        QuorumCert gap_recv_message = 3;
+        GapDropMessage gap_drop_message = 4;
+    }
+    required bytes sig = 5;
+}
+message GapPrepare {
+    required uint64 view = 1;
+    required uint64 opnum = 2;
+    required bool recv = 3;
+    required bytes sig = 4;
+}
+message GapCommit {
+    required uint64 view = 1;
+    required uint64 opnum = 2;
+    required bool recv = 3;
+    required bytes sig = 4;
+}
