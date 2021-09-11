@@ -84,6 +84,10 @@ void TomBFTReplica::ProcessPendingRequest() {
   if (vs.msgnum == 0) {
     vs.msgnum = meta.msg_num - 1;  // Jialin's hack
   }
+  if (meta.msg_num <= vs.msgnum) {
+    RWarning("Receive duplicated sequencing Request");
+    return;
+  }
   if (meta.msg_num != vs.msgnum + 1) {
     if (!query_timer->Active()) {
       query_timer->Start();
@@ -126,8 +130,10 @@ void TomBFTReplica::HandleQuery(const TransportAddress &remote,
     RWarning("Unexpected Query");
     return;
   }
+  string sig = msg.sig();
+  msg.clear_sig();
   if (!security.ReplicaVerifier(msg.replicaid())
-           .Verify(msg.SerializeAsString(), msg.sig())) {
+           .Verify(msg.SerializeAsString(), sig)) {
     RWarning("Incorrect Query signature");
     return;
   }
