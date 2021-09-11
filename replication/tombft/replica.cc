@@ -156,7 +156,7 @@ void TomBFTReplica::HandleQuery(const TransportAddress &remote,
   query_reply.set_msgnum(entry.meta.msg_num);
   *query_reply.mutable_req() = entry.req_msg;
   for (int i = 0; i < 4; i += 1) {
-    query_reply.add_hmac_vec(entry.meta.sig_list[i].hmac);
+    query_reply.add_hmac_vec(entry.meta.sig_list[i].hmac, HMAC_LENGTH);
   }
   query_reply.set_replicaid(replicaIdx);
   query_reply.clear_sig();
@@ -195,6 +195,7 @@ void TomBFTReplica::HandleQueryReply(const TransportAddress &remote,
     memcpy(meta.sig_list[i].hmac, msg.hmac_vec(i).c_str(), HMAC_LENGTH);
   }
   pending_request_meta[msg.msgnum()] = meta;
+  RNotice("Gap opnum = %lu filled", msg.opnum());
   ProcessPendingRequest();
 }
 
