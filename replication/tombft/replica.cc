@@ -33,6 +33,14 @@ TomBFTReplica::TomBFTReplica(const Configuration &config, int myIdx,
     this->security.ReplicaSigner(replicaIdx)
         .Sign(query.SerializeAsString(), sig);
     query.set_sig(sig);
+
+    // ad-hoc for lack of gap agreement
+    if (configuration.GetLeaderIndex(vs.view) == replicaIdx) {
+      this->transport->SendMessageToReplica(
+          this, configuration.GetLeaderIndex(vs.view + 1), TomBFTMessage(m));
+      return;
+    }
+
     this->transport->SendMessageToReplica(
         this, configuration.GetLeaderIndex(vs.view), TomBFTMessage(m));
   });
