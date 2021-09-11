@@ -32,8 +32,7 @@ class TomBFTMessage : public Message {
   };
   Header meta;
 
-  TomBFTMessage(::google::protobuf::Message &msg, bool sequencing = false,
-                bool digest = true)
+  TomBFTMessage(::google::protobuf::Message &msg, bool sequencing = false)
       : pb_msg(PBMessage(msg)), sequencing(sequencing) {
     meta.sess_num = 0;
   }

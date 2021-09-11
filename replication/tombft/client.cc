@@ -14,7 +14,10 @@ TomBFTClient::TomBFTClient(const Configuration &config,
       reply_set(config.f * 2 + 1) {
   last_req_id = 0;
 
-  request_timeout = new Timeout(transport, 1000, []() { NOT_IMPLEMENTED(); });
+  request_timeout = new Timeout(transport, 1000, [this]() {
+    Warning("Client timeout seq = %lu", pending_request->client_req_id);
+    SendRequest();
+  });
 }
 
 TomBFTClient::~TomBFTClient() {

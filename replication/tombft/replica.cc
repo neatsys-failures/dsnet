@@ -118,6 +118,7 @@ void TomBFTReplica::HandleQuery(const TransportAddress &remote,
   auto *e = log.Find(msg.opnum());
   if (!e) {
     // TODO gap
+    NOT_IMPLEMENTED();
   }
   auto &entry = e->As<TomBFTLogEntry>();
   proto::Message m;
@@ -125,7 +126,15 @@ void TomBFTReplica::HandleQuery(const TransportAddress &remote,
   query_reply.set_view(vs.view);
   query_reply.set_opnum(msg.opnum());
   *query_reply.mutable_req() = entry.req_msg;
-  query_reply.set_hmac_vec(0, entry.meta.sig_list[0].hmac);
+  for (int i = 0; i < 4; i += 1) {
+    query_reply.add_hmac_vec(entry.meta.sig_list[i].hmac);
+  }
+  query_reply.set_replicaid(replicaIdx);
+  query_reply.clear_sig();
+  string sig;
+  security.ReplicaSigner(replicaIdx).Sign(query_reply.SerializeAsString(), sig);
+  query_reply.set_sig(sig);
+  transport->SendMessage(this, remote, TomBFTMessage(m));
 }
 
 }  // namespace tombft
