@@ -20,7 +20,8 @@ TomBFTReplica::TomBFTReplica(const Configuration &config, int myIdx,
       vs(0, 0),
       log(false) {
   transport->ListenOnMulticast(this, config);
-  // TODO
+
+  query_timer = new Timeout(transport, 1000, [this]() { NOT_IMPLEMENTED(); });
 }
 
 void TomBFTReplica::ReceiveMessage(const TransportAddress &remote, void *buf,
@@ -53,11 +54,25 @@ void TomBFTReplica::HandleRequest(const TransportAddress &remote,
     return;
   }
 
+  pending_request_message[meta.msg_num] = m;
+  pending_request_meta[meta.msg_num] = meta;
+  ProcessPendingRequest();
+}
+
+void TomBFTReplica::ProcessPendingRequest() {
+  auto &m = pending_request_message.begin()->second;
+  auto &meta = pending_request_meta.begin()->second;
+
   if (vs.msgnum == 0) {
     vs.msgnum = meta.msg_num - 1;  // Jialin's hack
   }
   if (meta.msg_num != vs.msgnum + 1) {
-    NOT_IMPLEMENTED();  // slow path
+    if (!query_timer->Active()) {
+      query_timer->Start();
+    }
+    return;
+  } else {
+    query_timer->Stop();
   }
 
   vs.msgnum += 1;
@@ -81,6 +96,10 @@ void TomBFTReplica::HandleRequest(const TransportAddress &remote,
   TransportAddress *client_addr =
       transport->LookupAddress(ReplicaAddress(m.request().req().clientaddr()));
   transport->SendMessage(this, *client_addr, TomBFTMessage(reply_msg));
+
+  pending_request_message.erase(pending_request_message.begin());
+  pending_request_meta.erase(pending_request_meta.begin());
+  ProcessPendingRequest();
 }
 
 void TomBFTReplica::HandleQuery(const TransportAddress &remote,

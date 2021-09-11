@@ -33,9 +33,16 @@ class TomBFTReplica : public Replica {
                       size_t size) override;
 
  private:
+  Timeout *query_timer;
+
   void HandleRequest(const TransportAddress &remote, proto::Message &m,
                      TomBFTMessage::Header &meta);
+  std::map<uint64_t, proto::Message> pending_request_message;
+  std::map<uint64_t, TomBFTMessage::Header> pending_request_meta;
+
   void HandleQuery(const TransportAddress &remote, proto::Query &msg);
+
+  void ProcessPendingRequest();
 
   const Security &security;
   viewstamp_t vs;
