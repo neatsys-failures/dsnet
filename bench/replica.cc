@@ -48,6 +48,7 @@
 #include "replication/nopaxos/replica.h"
 #include "replication/pbft/replica.h"
 #include "replication/tombft/replica.h"
+#include "replication/unreplicated-sig/replica.h"
 #include "replication/unreplicated/replica.h"
 #include "replication/vr/replica.h"
 
@@ -73,6 +74,7 @@ int main(int argc, char **argv) {
   enum {
     PROTO_UNKNOWN,
     PROTO_UNREPLICATED,
+    PROTO_UNREPLICATED_SIG,
     PROTO_VR,
     PROTO_FASTPAXOS,
     PROTO_SPEC,
@@ -142,6 +144,8 @@ int main(int argc, char **argv) {
           proto = PROTO_TOMBFT;
         } else if (strcasecmp(optarg, "minbft") == 0) {
           proto = PROTO_MINBFT;
+        } else if (strcasecmp(optarg, "unreplicated-sig") == 0) {
+          proto = PROTO_UNREPLICATED_SIG;
         } else {
           fprintf(stderr, "unknown mode '%s'\n", optarg);
           Usage(argv[0]);
@@ -256,6 +260,11 @@ int main(int argc, char **argv) {
     case PROTO_MINBFT:
       replica = new dsnet::minbft::MinBFTReplica(config, index, !recover,
                                                  &transport, security, nullApp);
+      break;
+
+    case PROTO_UNREPLICATED_SIG:
+      replica = new dsnet::unreplicated_sig::UnreplicatedSigReplica(
+          config, index, !recover, &transport, security, nullApp);
       break;
 
     default:
