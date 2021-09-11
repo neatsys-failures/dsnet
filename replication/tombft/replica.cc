@@ -60,6 +60,7 @@ void TomBFTReplica::HandleRequest(const TransportAddress &remote,
 }
 
 void TomBFTReplica::ProcessPendingRequest() {
+  if (!pending_request_message.size()) return;
   auto &m = pending_request_message.begin()->second;
   auto &meta = pending_request_meta.begin()->second;
 
