@@ -11,7 +11,6 @@
 namespace dsnet {
 
 #define TIMER_RESOLUTION_MS 1
-#define NUM_MBUFS 8192
 #define MAX_PKT_BURST 32
 #define MEMPOOL_CACHE_SIZE 256
 #define RTE_RX_DESC 4096
@@ -123,8 +122,9 @@ DPDKTransport::DPDKTransport(int dev_port,
     // Initialize pktmbuf pool
     char pool_name[32];
     sprintf(pool_name, "pktmbuf_pool");
+    unsigned nb_mbufs = n_cores * (RTE_RX_DESC + RTE_TX_DESC);
     pktmbuf_pool_ = rte_pktmbuf_pool_create(pool_name,
-                                            NUM_MBUFS,
+                                            nb_mbufs,
                                             MEMPOOL_CACHE_SIZE,
                                             0,
                                             RTE_MBUF_DEFAULT_BUF_SIZE,
