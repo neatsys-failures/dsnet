@@ -19,11 +19,25 @@ namespace dsnet {
 #define IPV4_HDR_SIZE 5
 #define IPV4_TTL 0xFF
 
-thread_local static int thread_rx_queue_id;
-thread_local static int thread_tx_queue_id;
-
 typedef uint32_t Preamble;
 static const Preamble NONFRAG_MAGIC = 0x20050318;
+
+thread_local static int thread_tx_queue_id;
+
+struct TransportArg {
+    DPDKTransport *transport;
+    int tid;
+};
+
+#define MAX_THREADS 128
+static struct TransportArg transport_args[MAX_THREADS];
+
+static int transport_thread(void *arg)
+{
+    struct TransportArg *targ = (struct TransportArg *)arg;
+    thread_tx_queue_id = targ->tid;
+    targ->transport->RunTransport(targ->tid);
+}
 
 DPDKTransportAddress::DPDKTransportAddress(const std::string &s)
 {
@@ -68,14 +82,14 @@ operator<(const DPDKTransportAddress &a, const DPDKTransportAddress &b)
 }
 
 static void
-ConstructArguments(int argc, char **argv, const std::string &cmdline)
+ConstructArguments(int argc, char **argv, int n_cores, const std::string &cmdline)
 {
     argv[0] = new char[strlen("command")+1];
     strcpy(argv[0], "command");
     argv[1] = new char[strlen("-l")+1];
     strcpy(argv[1], "-l");
-    argv[2] = new char[strlen("0")+1];
-    strcpy(argv[2], "0");
+    argv[2] = new char[16];
+    sprintf(argv[2], "%d-%d", 0, n_cores - 1);
     argv[3] = new char[strlen("--proc-type=auto")+1];
     strcpy(argv[3], "--proc-type=auto");
     if (cmdline.length() > 0) {
@@ -84,9 +98,12 @@ ConstructArguments(int argc, char **argv, const std::string &cmdline)
     }
 }
 
-DPDKTransport::DPDKTransport(int dev_port, double drop_rate, const std::string &cmdline)
-    : dev_port_(dev_port), drop_rate_(drop_rate), status_(STOPPED),
-    multicast_addr_(nullptr), last_timer_id_(0)
+DPDKTransport::DPDKTransport(int dev_port,
+        double drop_rate,
+        int n_cores,
+        const std::string &cmdline)
+    : dev_port_(dev_port), drop_rate_(drop_rate), n_cores_(n_cores),
+    status_(STOPPED), multicast_addr_(nullptr), last_timer_id_(0)
 {
     // Initialize DPDK
     int argc = 4;
@@ -94,7 +111,7 @@ DPDKTransport::DPDKTransport(int dev_port, double drop_rate, const std::string &
         argc++;
     }
     char **argv = new char*[argc];
-    ConstructArguments(argc, argv, cmdline);
+    ConstructArguments(argc, argv, n_cores, cmdline);
 
     if (rte_eal_init(argc, argv) < 0) {
         Panic("rte_eal_init failed");
@@ -126,7 +143,10 @@ DPDKTransport::DPDKTransport(int dev_port, double drop_rate, const std::string &
     memset(&port_conf, 0, sizeof(port_conf));
     port_conf.txmode.mq_mode = ETH_MQ_TX_NONE;
     port_conf.rx_adv_conf.rss_conf.rss_key = nullptr;
-    //port_conf.rx_adv_conf.rss_conf.rss_hf = ETH_RSS_NONFRAG_IPV4_UDP;
+    if (n_cores > 1) {
+        // Enable RSS
+        port_conf.rx_adv_conf.rss_conf.rss_hf = ETH_RSS_NONFRAG_IPV4_UDP;
+    }
 
     struct rte_eth_dev_info dev_info;
     if (rte_eth_dev_info_get(dev_port_, &dev_info) != 0) {
@@ -136,8 +156,8 @@ DPDKTransport::DPDKTransport(int dev_port, double drop_rate, const std::string &
         port_conf.txmode.offloads |= DEV_TX_OFFLOAD_MBUF_FAST_FREE;
     }
 
-    int num_rx_queues = 1;
-    int num_tx_queues = 1;
+    int num_rx_queues = n_cores;
+    int num_tx_queues = n_cores;
     if (rte_eth_dev_configure(dev_port_,
                               num_rx_queues,
                               num_tx_queues,
@@ -220,8 +240,14 @@ DPDKTransport::Run()
         Panic("No transport receiver registered");
     }
     status_ = RUNNING;
-    // Currently only use master core for transport
-    thread_rx_queue_id = 0;
+
+    for (int tid = 1; tid < n_cores_; tid++) {
+        transport_args[tid].transport = this;
+        transport_args[tid].tid = tid;
+        if (rte_eal_remote_launch(transport_thread, &transport_args[tid], tid) != 0) {
+            Panic("rte_eal_remote_launch failed");
+        }
+    }
     thread_tx_queue_id = 0;
     RunTransport(0);
 }
@@ -396,6 +422,7 @@ DPDKTransport::RunTransport(int tid)
     uint16_t n_rx;
     struct rte_mbuf *pkt_burst[MAX_PKT_BURST];
     uint64_t cur_tsc, prev_tsc = 0;
+    int rx_queue_id = tid;
 
     while (status_ == RUNNING) {
         cur_tsc = rte_rdtsc();
@@ -404,7 +431,7 @@ DPDKTransport::RunTransport(int tid)
             prev_tsc = cur_tsc;
         }
         n_rx = rte_eth_rx_burst(dev_port_,
-                                thread_rx_queue_id,
+                                rx_queue_id,
                                 pkt_burst,
                                 MAX_PKT_BURST);
         for (int i = 0; i < n_rx; i++) {

@@ -64,8 +64,16 @@ static std::atomic<int> n_finished(0);
 static int rand_value();
 
 static void
-client_thread(int tid, KVClient *kvClient, TxnClient *txnClient, Client *protoClient)
+client_thread(int tid, int core, KVClient *kvClient, TxnClient *txnClient, Client *protoClient, bool pin)
 {
+    if (pin) {
+        cpu_set_t cs;
+        CPU_ZERO(&cs);
+        CPU_SET(core, &cs);
+        if (sched_setaffinity(0, sizeof(cs), &cs) != 0) {
+            Panic("Failed to pin client thread to cpu core");
+        }
+    }
     phase_t phase = WARMUP;
     uint64_t last_interval_txns = 0;
     struct timeval initialTime, currTime, lastInterval;
@@ -152,12 +160,13 @@ main(int argc, char **argv)
     int nShards = 1;
     string host, dev, transport_cmdline, stats_file;
     int dev_port = 0;
+    int n_transport_cores = 1;
 
     protomode_t mode = PROTO_UNKNOWN;
     enum { TRANSPORT_UDP, TRANSPORT_DPDK } transport_type = TRANSPORT_UDP;
 
     int opt;
-    while ((opt = getopt(argc, argv, "c:d:e:f:gh:i:k:m:N:p:r:s:t:u:v:w:x:z:Z:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:d:e:f:gh:i:k:m:N:p:r:s:t:T:u:v:w:x:z:Z:")) != -1) {
         switch (opt) {
         case 'c': // Configuration path
         {
@@ -338,7 +347,7 @@ main(int argc, char **argv)
             break;
         }
 
-        case 't': // number of benchmark threads
+        case 't': // number of benchmark threads (per transport core)
         {
             char *strtolPtr;
             n_threads = strtod(optarg, &strtolPtr);
@@ -346,6 +355,18 @@ main(int argc, char **argv)
             {
                 fprintf(stderr,
                         "option -t requires a numeric arg >= 1\n");
+            }
+            break;
+        }
+
+        case 'T': // number of transport cores
+        {
+            char *strtolPtr;
+            n_transport_cores = strtod(optarg, &strtolPtr);
+            if ((*optarg == '\0') || (*strtolPtr != '\0') || n_transport_cores < 1)
+            {
+                fprintf(stderr,
+                        "option -T requires a numeric arg >= 1\n");
             }
             break;
         }
@@ -391,7 +412,8 @@ main(int argc, char **argv)
             transport = new dsnet::UDPTransport(0, 0);
             break;
         case TRANSPORT_DPDK:
-            transport = new dsnet::DPDKTransport(dev_port, 0, transport_cmdline);
+            transport = new dsnet::DPDKTransport(dev_port, 0,
+                    n_transport_cores, transport_cmdline);
             break;
     }
 
@@ -420,51 +442,54 @@ main(int argc, char **argv)
     in.close();
 
     // Start benchmark threads
-    total_latency.resize(n_threads, 0);
-    commit_transactions.resize(n_threads, 0);
-    total_transactions.resize(n_threads, 0);
-    throughputs.resize(n_threads);
-    latency_dist.resize(n_threads);
+    total_latency.resize(n_transport_cores * n_threads, 0);
+    commit_transactions.resize(n_transport_cores * n_threads, 0);
+    total_transactions.resize(n_transport_cores * n_threads, 0);
+    throughputs.resize(n_transport_cores * n_threads);
+    latency_dist.resize(n_transport_cores * n_threads);
     std::vector<std::thread> threads;
     std::vector<KVClient *> kvclients;
     std::vector<Client *> protoclients;
-    for (int i = 0; i < n_threads; i++) {
-        KVClient *kvClient = nullptr;
-        TxnClient *txnClient = nullptr;
-        Client *protoClient = nullptr;
+    for (int c = 0; c < n_transport_cores; c++) {
+        for (int i = 0; i < n_threads; i++) {
+            KVClient *kvClient = nullptr;
+            TxnClient *txnClient = nullptr;
+            Client *protoClient = nullptr;
 
-        switch (mode) {
-            case PROTO_ERIS:
-                protoClient = new eris::ErisClient(config, addr, transport);
-                break;
-            case PROTO_GRANOLA:
-                protoClient = new granola::GranolaClient(config, addr, transport);
-                break;
-            case PROTO_UNREPLICATED:
-                protoClient =
-                    new transaction::unreplicated::UnreplicatedClient(config,
-                            addr, transport);
-                break;
-            case PROTO_SPANNER:
-                protoClient = new spanner::SpannerClient(config, addr, transport);
-                break;
-            case PROTO_TAPIR:
-                break;
-            default:
-                Panic("Unknown protocol mode");
+            switch (mode) {
+                case PROTO_ERIS:
+                    protoClient = new eris::ErisClient(config, addr, transport);
+                    break;
+                case PROTO_GRANOLA:
+                    protoClient = new granola::GranolaClient(config, addr, transport);
+                    break;
+                case PROTO_UNREPLICATED:
+                    protoClient =
+                        new transaction::unreplicated::UnreplicatedClient(config,
+                                addr, transport);
+                    break;
+                case PROTO_SPANNER:
+                    protoClient = new spanner::SpannerClient(config, addr, transport);
+                    break;
+                case PROTO_TAPIR:
+                    break;
+                default:
+                    Panic("Unknown protocol mode");
+            }
+            if (mode == PROTO_TAPIR) {
+                txnClient = new tapir::TapirClient(config, addr, transport);
+            } else {
+                txnClient = new TxnClientCommon(transport, protoClient);
+            }
+            kvClient = new KVClient(txnClient, nShards);
+            kvclients.push_back(kvClient);
+            if (protoClient) {
+                protoclients.push_back(protoClient);
+            }
+            bool pin = transport_type == TRANSPORT_DPDK;
+            threads.push_back(std::thread(client_thread,
+                        c * n_threads + i, c, kvClient, txnClient, protoClient, pin));
         }
-        if (mode == PROTO_TAPIR) {
-            txnClient = new tapir::TapirClient(config, addr, transport);
-        } else {
-            txnClient = new TxnClientCommon(transport, protoClient);
-        }
-        kvClient = new KVClient(txnClient, nShards);
-        kvclients.push_back(kvClient);
-        if (protoClient) {
-            protoclients.push_back(protoClient);
-        }
-        threads.push_back(std::thread(client_thread,
-                    i, kvClient, txnClient, protoClient));
     }
     transport->Run();
     for (auto &t : threads) {
@@ -482,7 +507,7 @@ main(int argc, char **argv)
              agg_commit_transactions = 0,
              agg_total_transactions = 0;
     std::map<uint64_t, int> agg_throughputs, agg_latency_dist;
-    for (int i = 0; i < n_threads; i++) {
+    for (int i = 0; i < n_transport_cores * n_threads; i++) {
         agg_total_latency += total_latency[i];
         agg_commit_transactions += commit_transactions[i];
         agg_total_transactions += total_transactions[i];
