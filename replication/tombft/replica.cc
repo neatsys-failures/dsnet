@@ -21,7 +21,21 @@ TomBFTReplica::TomBFTReplica(const Configuration &config, int myIdx,
       log(false) {
   transport->ListenOnMulticast(this, config);
 
-  query_timer = new Timeout(transport, 1000, [this]() { NOT_IMPLEMENTED(); });
+  query_timer = new Timeout(transport, 1000, [this]() {
+    RWarning("Query opnum = %lu", vs.opnum);
+    proto::Message m;
+    auto &query = *m.mutable_query();
+    query.set_view(vs.view);
+    query.set_opnum(vs.opnum + 1);
+    query.set_replicaid(replicaIdx);
+    query.clear_sig();
+    string sig;
+    this->security.ReplicaSigner(replicaIdx)
+        .Sign(query.SerializeAsString(), sig);
+    query.set_sig(sig);
+    this->transport->SendMessageToReplica(
+        this, configuration.GetLeaderIndex(vs.view), TomBFTMessage(m));
+  });
 }
 
 void TomBFTReplica::ReceiveMessage(const TransportAddress &remote, void *buf,
@@ -32,6 +46,9 @@ void TomBFTReplica::ReceiveMessage(const TransportAddress &remote, void *buf,
   switch (msg.msg_case()) {
     case proto::Message::kRequest:
       HandleRequest(remote, msg, m.meta);
+      break;
+    case proto::Message::kQuery:
+      HandleQuery(remote, *msg.mutable_query());
       break;
     default:
       Panic("Received unexpected message type #%u", msg.msg_case());
@@ -114,6 +131,8 @@ void TomBFTReplica::HandleQuery(const TransportAddress &remote,
     RWarning("Incorrect Query signature");
     return;
   }
+
+  RNotice("Reply to Query opnum = %lu", vs.opnum);
   // TODO find by message number
   auto *e = log.Find(msg.opnum());
   if (!e) {
