@@ -22,7 +22,7 @@ TomBFTReplica::TomBFTReplica(const Configuration &config, int myIdx,
   transport->ListenOnMulticast(this, config);
 
   query_timer = new Timeout(transport, 1000, [this]() {
-    RWarning("Query opnum = %lu", vs.opnum);
+    RWarning("Query opnum = %lu", vs.opnum + 1);
     proto::Message m;
     auto &query = *m.mutable_query();
     query.set_view(vs.view);
@@ -153,6 +153,7 @@ void TomBFTReplica::HandleQuery(const TransportAddress &remote,
   auto &query_reply = *m.mutable_query_reply();
   query_reply.set_view(vs.view);
   query_reply.set_opnum(msg.opnum());
+  query_reply.set_msgnum(entry.meta.msg_num);
   *query_reply.mutable_req() = entry.req_msg;
   for (int i = 0; i < 4; i += 1) {
     query_reply.add_hmac_vec(entry.meta.sig_list[i].hmac);
