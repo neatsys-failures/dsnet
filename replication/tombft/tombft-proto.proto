@@ -43,9 +43,10 @@ message QueryReply {
     required uint64 view = 1;
     required uint64 opnum = 2;
     required Message req = 3;
-    repeated bytes hmac_vec = 4;
-    required uint64 replicaid = 5;
-    required bytes sig = 6;
+    required uint64 msgnum = 4;
+    repeated bytes hmac_vec = 5;
+    required uint64 replicaid = 6;
+    required bytes sig = 7;
 }
 message GapFindMessage {
     required uint64 view = 1;

@@ -50,6 +50,9 @@ void TomBFTReplica::ReceiveMessage(const TransportAddress &remote, void *buf,
     case proto::Message::kQuery:
       HandleQuery(remote, *msg.mutable_query());
       break;
+    case proto::Message::kQueryReply:
+      HandleQueryReply(remote, *msg.mutable_query_reply());
+      break;
     default:
       Panic("Received unexpected message type #%u", msg.msg_case());
   }
@@ -138,7 +141,7 @@ void TomBFTReplica::HandleQuery(const TransportAddress &remote,
     return;
   }
 
-  RNotice("Reply to Query opnum = %lu", vs.opnum);
+  RNotice("Reply to Query opnum = %lu", msg.opnum());
   // TODO find by message number
   auto *e = log.Find(msg.opnum());
   if (!e) {
@@ -156,10 +159,42 @@ void TomBFTReplica::HandleQuery(const TransportAddress &remote,
   }
   query_reply.set_replicaid(replicaIdx);
   query_reply.clear_sig();
-  string sig;
+  // string sig;
   security.ReplicaSigner(replicaIdx).Sign(query_reply.SerializeAsString(), sig);
   query_reply.set_sig(sig);
   transport->SendMessage(this, remote, TomBFTMessage(m));
+}
+
+void TomBFTReplica::HandleQueryReply(const TransportAddress &remote,
+                                     proto::QueryReply &msg) {
+  string sig = msg.sig();
+  msg.clear_sig();
+  if (!security.ReplicaVerifier(replicaIdx)
+           .Verify(msg.SerializeAsString(), sig)) {
+    RWarning("Incorrect QueryReply signature");
+    return;
+  }
+  std::string seq_sig(msg.hmac_vec(replicaIdx), HMAC_LENGTH);
+  if (!security.SequencerVerifier(replicaIdx)
+           .Verify(msg.req().SerializeAsString(), seq_sig)) {
+    RWarning("Incorrect sequence in QueryReply");
+    return;
+  }
+  if (!security.ClientVerifier().Verify(
+          msg.req().request().req().SerializeAsString(),
+          msg.req().request().sig())) {
+    RWarning("Incorrect client signature in QueryReply");
+    return;
+  }
+
+  pending_request_message[msg.msgnum()] = msg.req();
+  TomBFTMessage::Header meta;
+  meta.msg_num = msg.msgnum();
+  for (int i = 0; i < 4; i += 1) {
+    memcpy(meta.sig_list[i].hmac, msg.hmac_vec(i).c_str(), HMAC_LENGTH);
+  }
+  pending_request_meta[msg.msgnum()] = meta;
+  ProcessPendingRequest();
 }
 
 }  // namespace tombft

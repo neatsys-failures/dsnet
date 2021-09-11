@@ -41,6 +41,7 @@ class TomBFTReplica : public Replica {
   std::map<uint64_t, TomBFTMessage::Header> pending_request_meta;
 
   void HandleQuery(const TransportAddress &remote, proto::Query &msg);
+  void HandleQueryReply(const TransportAddress &remote, proto::QueryReply &msg);
 
   void ProcessPendingRequest();
 
