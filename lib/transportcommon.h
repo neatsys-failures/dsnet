@@ -258,6 +258,13 @@ public:
         return new ADDR(LookupAddressInternal(addr));
     }
 
+    virtual void
+    SetCoreID(int core) override
+    {
+        // Most transports can ignore this call
+        return;
+    }
+
 protected:
     virtual void RegisterInternal(TransportReceiver *receiver,
                                   const dsnet::ReplicaAddress *addr,

@@ -74,6 +74,7 @@ client_thread(int tid, int core, KVClient *kvClient, TxnClient *txnClient, Clien
             Panic("Failed to pin client thread to cpu core");
         }
     }
+    transport->SetCoreID(core);
     phase_t phase = WARMUP;
     uint64_t last_interval_txns = 0;
     struct timeval initialTime, currTime, lastInterval;

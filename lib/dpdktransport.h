@@ -51,6 +51,7 @@ public:
     virtual void CancelAllTimers() override;
     virtual ReplicaAddress
     ReverseLookupAddress(const TransportAddress &addr) const override;
+    virtual void SetCoreID(int core) override;
 
     void RunTransport(int tid);
 

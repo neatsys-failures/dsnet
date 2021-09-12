@@ -21,6 +21,7 @@ namespace dsnet {
 typedef uint32_t Preamble;
 static const Preamble NONFRAG_MAGIC = 0x20050318;
 
+thread_local static int thread_core_id;
 thread_local static int thread_tx_queue_id;
 
 struct TransportArg {
@@ -34,6 +35,7 @@ static struct TransportArg transport_args[MAX_THREADS];
 static int transport_thread(void *arg)
 {
     struct TransportArg *targ = (struct TransportArg *)arg;
+    thread_core_id = targ->tid;
     thread_tx_queue_id = targ->tid;
     targ->transport->RunTransport(targ->tid);
 }
@@ -248,6 +250,7 @@ DPDKTransport::Run()
             Panic("rte_eal_remote_launch failed");
         }
     }
+    thread_core_id = 0;
     thread_tx_queue_id = 0;
     RunTransport(0);
 }
@@ -272,7 +275,7 @@ DPDKTransport::Timer(uint64_t ms, timer_callback_t cb)
     timers_[info->id] = info;
 
     uint64_t ticks = (ms == 0) ? 0 : hz / (1000 / (double)ms);
-    rte_timer_reset(&info->timer, ticks, SINGLE, rte_lcore_id(), TimerCallback, info);
+    rte_timer_reset(&info->timer, ticks, SINGLE, thread_core_id, TimerCallback, info);
 
     return info->id;
 }
@@ -411,6 +414,13 @@ DPDKTransport::ReverseLookupAddress(const TransportAddress &addr) const
     return ReplicaAddress(std::string(host_buf),
                           std::to_string(rte_be_to_cpu_16(da->udp_addr_)),
                           std::string(dev_buf));
+}
+
+void
+DPDKTransport::SetCoreID(int core)
+{
+    thread_core_id = core;
+    thread_tx_queue_id = core;
 }
 
 void
