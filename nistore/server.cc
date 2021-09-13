@@ -14,7 +14,7 @@ namespace nistore {
 using namespace specpaxos;
 
 void
-Server::ReplicaUpcall(opnum_t opnum, const string &str1, string &str2)
+Server::ReplicaUpcall(opnum_t opnum, const string &str1, string &str2, void *, void *)
 {
     Request request;
     Reply reply;

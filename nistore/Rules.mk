@@ -15,7 +15,8 @@ LIB-stores := $(o)lockserver.o $(o)versionedKVStore.o
 OBJS-ni-store := $(o)server.o $(o)txnstore.o $(o)lockstore.o $(o)occstore.o
 
 OBJS-ni-client := $(o)request.o $(o)client.o \
-  $(OBJS-spec-client) $(OBJS-vr-client) $(OBJS-fastpaxos-client) $(LIB-udptransport)
+  $(OBJS-spec-client) $(OBJS-vr-client) $(OBJS-fastpaxos-client) $(LIB-udptransport) \
+  $(OBJS-pbft-client) $(OBJS-minbft-client) $(OBJS-tombft-client)
 
 OBJS-ni-request := $(o)request.o
 

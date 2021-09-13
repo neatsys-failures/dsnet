@@ -63,7 +63,7 @@ public:
     virtual void LeaderUpcall(opnum_t opnum, const string &str1, bool &replicate, string &str2) { replicate = true; str2 = str1; };
     // Invoke callback on all replicas
     virtual void ReplicaUpcall(opnum_t opnum, const string &str1, string &str2,
-                               void *arg = nullptr, void *ret = nullptr) { };
+                               void *arg = nullptr, void *ret = nullptr) { Debug("null app replica upcall"); };
     // Rollback callback on failed speculative operations
     virtual void RollbackUpcall(opnum_t current, opnum_t to, const std::map<opnum_t, string> &opMap) { };
     // Commit callback to commit speculative operations

@@ -10,23 +10,27 @@
 #ifndef _NI_CLIENT_H_
 #define _NI_CLIENT_H_
 
-#include "lib/assert.h"
-#include "lib/message.h"
-#include "lib/udptransport.h"
-#include "common/client.h"
-#include "lib/configuration.h"
-#include "replication/spec/client.h"
-#include "replication/vr/client.h"
-#include "replication/fastpaxos/client.h"
-#include "nistore/request.pb.h"
-
-#include <iostream>
-#include <cstdlib>
-#include <string>
-#include <mutex>
 #include <condition_variable>
-#include <thread>
+#include <cstdlib>
+#include <iostream>
+#include <mutex>
 #include <set>
+#include <string>
+#include <thread>
+
+#include "common/client.h"
+#include "lib/assert.h"
+#include "lib/configuration.h"
+#include "lib/message.h"
+#include "lib/signature.h"
+#include "lib/udptransport.h"
+#include "nistore/request.pb.h"
+#include "replication/fastpaxos/client.h"
+#include "replication/minbft/client.h"
+#include "replication/pbft/client.h"
+#include "replication/spec/client.h"
+#include "replication/tombft/client.h"
+#include "replication/vr/client.h"
 
 namespace nistore {
 
@@ -35,65 +39,68 @@ using namespace dsnet;
 namespace specpaxos = dsnet;
 
 enum Proto {
-    PROTO_UNKNOWN,
-    PROTO_VR,
-    PROTO_SPEC,
-    PROTO_FAST
+  PROTO_UNKNOWN,
+  PROTO_VR,
+  PROTO_SPEC,
+  PROTO_FAST,
+  PROTO_PBFT,
+  PROTO_MINBFT,
+  PROTO_TOMBFT,
 };
 
-class Client
-{
-public:
-    /* Constructor needs path to shard configs and number of shards. */
-    Client(Proto mode, string configPath, int nshards, std::string host);
-    ~Client();
+class Client {
+ public:
+  /* Constructor needs path to shard configs and number of shards. */
+  Client(Proto mode, string configPath, int nshards, std::string host,
+         const Security &s);
+  ~Client();
 
-    /* API Calls for NiStore. */
-    void Begin();
-    bool Get(const string &key, string &value);
-    void Put(const string &key, const string &value);
-    bool Commit();
-    void Abort();
+  /* API Calls for NiStore. */
+  void Begin();
+  bool Get(const string &key, string &value);
+  void Put(const string &key, const string &value);
+  bool Commit();
+  void Abort();
 
-private:
-    long client_id; // Unique ID for this client.
-    long nshards; // Number of shards in niStore
+ private:
+  long client_id;  // Unique ID for this client.
+  long nshards;    // Number of shards in niStore
 
-    UDPTransport transport; // Transport used by paxos client proxies.
-    thread *clientTransport; // Thread running the transport event loop.
+  UDPTransport transport;   // Transport used by paxos client proxies.
+  thread *clientTransport;  // Thread running the transport event loop.
 
-    vector<specpaxos::Client *> shard; // List of shard client proxies.
-    specpaxos::Client *tss; // Timestamp server shard.
+  vector<specpaxos::Client *> shard;  // List of shard client proxies.
+  specpaxos::Client *tss;             // Timestamp server shard.
 
-    mutex cv_m; // Synchronize access to all state in this class and cv.
-    condition_variable cv; // To block api calls till a replica reply.
+  mutex cv_m;  // Synchronize access to all state in this class and cv.
+  condition_variable cv;  // To block api calls till a replica reply.
 
-    /* Transaction specific variables. */
-    bool op_pending; // True if a transaction is ongoing.
-    bool status; // Whether to commit transaction & reply status.
-    unsigned int nreplies; // Number of replies received back in 2PC.
-    set<int> all_participants; // Participants in ongoing transaction.
-    set<int> yes_participants; // Participants who replies YES.
-    string replica_reply; // Reply back from a shard.
+  /* Transaction specific variables. */
+  bool op_pending;            // True if a transaction is ongoing.
+  bool status;                // Whether to commit transaction & reply status.
+  unsigned int nreplies;      // Number of replies received back in 2PC.
+  set<int> all_participants;  // Participants in ongoing transaction.
+  set<int> yes_participants;  // Participants who replies YES.
+  string replica_reply;       // Reply back from a shard.
 
-    /* Private helper functions. */
-    void run_client(); // Runs the transport event loop.
-    void send_begin(unsigned int); // Sends BEGIN message to shard[i].
+  /* Private helper functions. */
+  void run_client();              // Runs the transport event loop.
+  void send_begin(unsigned int);  // Sends BEGIN message to shard[i].
 
-    /* Callbacks for hearing back from a shard for an operation. */
-    void beginCallback(const int, const string &, const string &);
-    void getCallback(const int, const string &, const string &);
-    void putCallback(const int, const string &, const string &);
-    void prepareCallback(const int, const string &, const string &);
-    void commitCallback(const int, const string &, const string &);
-    void abortCallback(const int, const string &, const string &);
+  /* Callbacks for hearing back from a shard for an operation. */
+  void beginCallback(const int, const string &, const string &);
+  void getCallback(const int, const string &, const string &);
+  void putCallback(const int, const string &, const string &);
+  void prepareCallback(const int, const string &, const string &);
+  void commitCallback(const int, const string &, const string &);
+  void abortCallback(const int, const string &, const string &);
 
-    void tssCallback(const string &request, const string &reply);
+  void tssCallback(const string &request, const string &reply);
 
-    // Sharding logic: Given key, generates a number b/w 0 to nshards-1
-    long key_to_shard(const string &key);
+  // Sharding logic: Given key, generates a number b/w 0 to nshards-1
+  long key_to_shard(const string &key);
 };
 
-} // namespace nistore
+}  // namespace nistore
 
 #endif /* _NI_CLIENT_H_ */

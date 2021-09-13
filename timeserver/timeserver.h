@@ -28,9 +28,9 @@ public:
     TimeStampServer();
     ~TimeStampServer();
 
-    void ReplicaUpcall(opnum_t opnum, const string &str1, string &str2);
-    void RollbackUpcall(opnum_t current, opnum_t to, const std::map<opnum_t, string> &opMap);
-    void CommitUpcall(opnum_t op);
+    virtual void ReplicaUpcall(opnum_t opnum, const string &str1, string &str2, void *arg = nullptr, void *ret = nullptr);
+    virtual void RollbackUpcall(opnum_t current, opnum_t to, const std::map<opnum_t, string> &opMap);
+    virtual void CommitUpcall(opnum_t op);
 private:
     long ts;
     string newTimeStamp();

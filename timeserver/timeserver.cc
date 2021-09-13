@@ -10,6 +10,7 @@
 
 TimeStampServer::TimeStampServer()
 {
+    Debug("timeserver %p", this);
     ts = 0;
 }
 
@@ -25,7 +26,7 @@ TimeStampServer::newTimeStamp()
 void
 TimeStampServer::ReplicaUpcall(opnum_t opnum,
                                const string &str1,
-                               string &str2)
+                               string &str2, void *, void *)
 {
     Debug("Received Upcall: " FMT_OPNUM ", %s", opnum, str1.c_str());
     // Get a new timestamp from the TimeStampServer
@@ -69,7 +70,7 @@ main(int argc, char **argv)
     PROTO_VR,
     PROTO_SPEC,
     PROTO_FAST
-  } proto = PROTO_UNKNOWN;
+  } proto = PROTO_VR;
 
   // Parse arguments
   int opt;

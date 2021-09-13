@@ -60,9 +60,9 @@ Replica::LeaderUpcall(opnum_t opnum, const string &op, bool &replicate, string &
 void
 Replica::ReplicaUpcall(opnum_t opnum, const string &op, string &res, void *arg, void *ret)
 {
-    Debug("Making upcall for operation %s", op.c_str());
+    Debug("Making upcall for operation %s, %p", op.c_str(), app);
     app->ReplicaUpcall(opnum, op, res, arg, ret);
-    Debug("Upcall result: %s", res.c_str());
+    Debug("Upcall result: \"%s\"", res.c_str());
 }
 
 void
