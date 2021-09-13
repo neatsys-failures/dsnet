@@ -82,6 +82,30 @@ void TomBFTReplica::HandleRequest(const TransportAddress &remote,
     return;
   }
 
+  if (meta.msg_num == vs.msgnum + 1) {
+    vs.msgnum += 1;
+    vs.opnum += 1;
+    log.Append(new TomBFTLogEntry(vs, LOG_STATE_EXECUTED, m, meta));
+
+    proto::Message reply_msg;
+    reply_msg.mutable_reply()->set_view(vs.view);
+    reply_msg.mutable_reply()->set_replicaid(replicaIdx);
+    reply_msg.mutable_reply()->set_opnum(vs.opnum);
+    reply_msg.mutable_reply()->set_clientreqid(m.request().req().clientreqid());
+
+    Execute(vs.opnum, m.request().req(), *reply_msg.mutable_reply());
+
+    reply_msg.mutable_reply()->set_sig(string());
+    security.ReplicaSigner(replicaIdx)
+        .Sign(reply_msg.reply().SerializeAsString(),
+              *reply_msg.mutable_reply()->mutable_sig());
+
+    TransportAddress *client_addr = transport->LookupAddress(
+        ReplicaAddress(m.request().req().clientaddr()));
+    transport->SendMessage(this, *client_addr, TomBFTMessage(reply_msg));
+    return;
+  }
+
   pending_request_message[meta.msg_num] = m;
   pending_request_meta[meta.msg_num] = meta;
   ProcessPendingRequest();
@@ -93,10 +117,12 @@ void TomBFTReplica::ProcessPendingRequest() {
   auto &meta = pending_request_meta.begin()->second;
 
   if (vs.msgnum == 0) {
+    RNotice("Start msgnum = %lu", meta.msg_num);
     vs.msgnum = meta.msg_num - 1;  // Jialin's hack
   }
   if (meta.msg_num <= vs.msgnum) {
-    RWarning("Receive duplicated sequencing Request");
+    RWarning("Receive duplicated sequencing Request msgnum = %lu",
+             meta.msg_num);
     return;
   }
   if (meta.msg_num != vs.msgnum + 1) {
@@ -110,7 +136,6 @@ void TomBFTReplica::ProcessPendingRequest() {
 
   vs.msgnum += 1;
   vs.opnum += 1;
-  // TODO
   log.Append(new TomBFTLogEntry(vs, LOG_STATE_EXECUTED, m, meta));
 
   proto::Message reply_msg;
