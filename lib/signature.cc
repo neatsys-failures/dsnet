@@ -8,7 +8,7 @@
 
 #include "signature.h"
 
-#include <arpa/inet.h>
+#include <endian.h>
 #include <openssl/aes.h>
 #include <openssl/bio.h>
 #include <openssl/err.h>
@@ -209,7 +209,7 @@ bool dsnet::HalfSipHashSigner::Sign(const std::string &message,
   MD5(reinterpret_cast<const unsigned char *>(message.c_str()), message.size(),
       (unsigned char *)digest);
   for (int i = 0; i < 4; i += 1) {
-    digest[i] = ntohl(digest[i]);
+    digest[i] = htole32(digest[i]);
   }
   uint8_t out[4];
   halfsiphash(digest, MD5_DIGEST_LENGTH, k, out, 4);

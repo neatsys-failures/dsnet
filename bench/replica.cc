@@ -211,7 +211,7 @@ int main(int argc, char **argv) {
   dsnet::Replica *replica;
   dsnet::Secp256k1Signer signer;
   dsnet::Secp256k1Verifier verifier(signer);
-  uint8_t k[8] = {0x33, 0x32, 0x31, 0x30, 0x42, 0x41, 0x39, 0x38};
+  uint8_t k[8] = {0x30, 0x31, 0x32, 0x33, 0x38, 0x39, 0x41, 0x42};
   dsnet::HalfSipHashSigner seq_signer(k);
   dsnet::HalfSipHashVerifier seq_verifier(seq_signer);
   dsnet::HomogeneousSecurity security(seq_signer, seq_verifier, seq_signer,

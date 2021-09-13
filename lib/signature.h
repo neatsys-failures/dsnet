@@ -99,7 +99,6 @@ class HalfSipHashVerifier : public Verifier {
               const std::string &signature) const override {
     std::string sig2;
     s.Sign(message, sig2);
-    // sig2 = signature.substr(0, 4);
     return sig2 == signature.substr(0, 4);
   }
 };
