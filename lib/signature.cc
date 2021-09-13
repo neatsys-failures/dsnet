@@ -211,8 +211,9 @@ bool dsnet::HalfSipHashSigner::Sign(const std::string &message,
   for (int i = 0; i < 4; i += 1) {
     digest[i] = htole32(digest[i]);
   }
-  uint8_t out[4];
-  halfsiphash(digest, MD5_DIGEST_LENGTH, k, out, 4);
+  uint32_t out[1];
+  halfsiphash(digest, MD5_DIGEST_LENGTH, k, (uint8_t *)out, 4);
+  out[0] = htobe32(out[0]);
   signature.assign(reinterpret_cast<char *>(out), 4);
   return true;
 }
