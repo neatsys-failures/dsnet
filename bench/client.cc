@@ -246,7 +246,7 @@ int main(int argc, char **argv) {
   uint8_t k[8] = {0x33, 0x32, 0x31, 0x30, 0x42, 0x41, 0x39, 0x38};
   dsnet::HalfSipHashSigner seq_signer(k);
   dsnet::HalfSipHashVerifier seq_verifier(seq_signer);
-  dsnet::HomogeneousSecurity security(signer, verifier, seq_signer,
+  dsnet::HomogeneousSecurity security(seq_signer, seq_verifier, seq_signer,
                                       seq_verifier);
   // dsnet::NopSecurity security;
   for (int i = 0; i < numClients; i++) {
