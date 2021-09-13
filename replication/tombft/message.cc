@@ -35,6 +35,9 @@ void TomBFTMessage::FillDigest() {
   unsigned char *buf = new unsigned char[buf_len];
   pb_msg.Serialize(buf);
   MD5(buf, buf_len, meta.sig_list[0].digest);
+  for (int i = 0; i < 4; i += 1) {
+    ((uint32_t *)meta.sig_list)[i] = htole32(((uint32_t *)meta.sig_list)[i]);
+  }
   for (int i = 1; i < 4; i += 1) {
     memcpy(meta.sig_list[i].digest, meta.sig_list[0].digest, MD5_DIGEST_LENGTH);
   }
