@@ -146,6 +146,7 @@ include replication/Rules.mk
 include transaction/Rules.mk
 include sequencer/Rules.mk
 include nistore/Rules.mk
+include timeserver/Rules.mk
 include bench/Rules.mk
 include tests/Rules.mk
 
