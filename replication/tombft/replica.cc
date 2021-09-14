@@ -123,7 +123,7 @@ void TomBFTReplica::HandleRequest(const TransportAddress &remote,
 
   pending_request_message[meta.msg_num] = m;
   pending_request_meta[meta.msg_num] = meta;
-  RNotice("slow path msg = %lu", meta.msg_num);
+  RDebug("slow path msg = %lu", meta.msg_num);
   ProcessPendingRequest();
 }
 
@@ -349,12 +349,12 @@ void TomBFTReplica::HandleGapPrepare(const TransportAddress &remote,
   // TODO sig
   gap_commit.set_sig(string());
 
-  if (past_prepared.count(msg.opnum())) {
-    transport->SendMessage(this, remote, TomBFTMessage(m));
-  } else {
-    transport->SendMessageToAll(this, TomBFTMessage(m));
-    HandleGapCommit(this->GetAddress(), gap_commit);
-  }
+  // if (past_prepared.count(msg.opnum())) {
+  //   transport->SendMessage(this, remote, TomBFTMessage(m));
+  // } else {
+  transport->SendMessageToAll(this, TomBFTMessage(m));
+  HandleGapCommit(this->GetAddress(), gap_commit);
+  // }
   past_prepared.insert(msg.opnum());
 }
 
@@ -371,7 +371,7 @@ void TomBFTReplica::HandleGapCommit(const TransportAddress &remote,
   }
   auto &recv = decision_map[msg.opnum()].gap_recv_message();
   if (recv.msgnum() <= vs.msgnum) {
-    RNotice("skip past msg = %lu", recv.msgnum());
+    RDebug("skip past msg = %lu", recv.msgnum());
     return;
   }
 
