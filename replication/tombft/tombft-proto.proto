@@ -58,9 +58,10 @@ message GapRecvMessage {
     required uint64 view = 1;
     required uint64 opnum = 2;
     required Message req = 3;
-    repeated bytes hmac_vec = 4;
-    required uint64 replicaid = 5;
-    required bytes sig = 6;
+    required uint64 msgnum = 4;
+    repeated bytes hmac_vec = 5;
+    required uint64 replicaid = 6;
+    required bytes sig = 7;
 }
 message GapDropMessage {
     required uint64 view = 1;
@@ -72,11 +73,11 @@ message GapDecision {
     required uint64 view = 1;
     required uint64 opnum = 2;
     message QuorumCert {
-        repeated GapRecvMessage vec = 1;
+        repeated GapDropMessage vec = 1;
     }
     oneof decision {
-        QuorumCert gap_recv_message = 3;
-        GapDropMessage gap_drop_message = 4;
+        GapRecvMessage gap_recv_message = 3;
+        QuorumCert gap_drop_message = 4;
     }
     required uint64 replicaid = 5;
     required bytes sig = 6;

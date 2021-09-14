@@ -18,28 +18,28 @@ TomBFTReplica::TomBFTReplica(const Configuration &config, int myIdx,
     : Replica(config, 0, myIdx, initialize, transport, app),
       security(security),
       vs(0, 0),
-      log(false) {
+      log(false),
+      prepare_set(2 * configuration.f),
+      commit_set(2 * configuration.f + 1) {
   transport->ListenOnMulticast(this, config);
 
-  query_timer = new Timeout(transport, 1000, [this]() {
+  query_timer = new Timeout(transport, 800, [this]() {
+    if (configuration.GetLeaderIndex(vs.view) == replicaIdx) {
+      SendGapFindMessage(vs.opnum + 1);
+      return;
+    }
+
     RWarning("Query opnum = %lu", vs.opnum + 1);
     proto::Message m;
     auto &query = *m.mutable_query();
     query.set_view(vs.view);
     query.set_opnum(vs.opnum + 1);
     query.set_replicaid(replicaIdx);
-    query.clear_sig();
+    query.set_sig(string());
     string sig;
     this->security.ReplicaSigner(replicaIdx)
         .Sign(query.SerializeAsString(), sig);
     query.set_sig(sig);
-
-    // ad-hoc for lack of gap agreement
-    if (configuration.GetLeaderIndex(vs.view) == replicaIdx) {
-      this->transport->SendMessageToReplica(
-          this, configuration.GetLeaderIndex(vs.view + 1), TomBFTMessage(m));
-      return;
-    }
 
     this->transport->SendMessageToReplica(
         this, configuration.GetLeaderIndex(vs.view), TomBFTMessage(m));
@@ -60,6 +60,21 @@ void TomBFTReplica::ReceiveMessage(const TransportAddress &remote, void *buf,
       break;
     case proto::Message::kQueryReply:
       HandleQueryReply(remote, *msg.mutable_query_reply());
+      break;
+    case proto::Message::kGapFindMessage:
+      HandleGapFindMessage(remote, *msg.mutable_gap_find_message());
+      break;
+    case proto::Message::kGapRecvMessage:
+      HandleGapRecvMessage(remote, *msg.mutable_gap_recv_message());
+      break;
+    case proto::Message::kGapDecision:
+      HandleGapDecision(remote, *msg.mutable_gap_decision());
+      break;
+    case proto::Message::kGapPrepare:
+      HandleGapPrepare(remote, *msg.mutable_gap_prepare());
+      break;
+    case proto::Message::kGapCommit:
+      HandleGapCommit(remote, *msg.mutable_gap_commit());
       break;
     default:
       Panic("Received unexpected message type #%u", msg.msg_case());
@@ -108,6 +123,7 @@ void TomBFTReplica::HandleRequest(const TransportAddress &remote,
 
   pending_request_message[meta.msg_num] = m;
   pending_request_meta[meta.msg_num] = meta;
+  RNotice("slow path msg = %lu", meta.msg_num);
   ProcessPendingRequest();
 }
 
@@ -123,14 +139,22 @@ void TomBFTReplica::ProcessPendingRequest() {
   if (meta.msg_num <= vs.msgnum) {
     RWarning("Receive duplicated sequencing Request msgnum = %lu",
              meta.msg_num);
+    pending_request_message.erase(pending_request_message.begin());
+    pending_request_meta.erase(pending_request_meta.begin());
+    ProcessPendingRequest();
     return;
   }
   if (meta.msg_num != vs.msgnum + 1) {
     if (!query_timer->Active()) {
+      RNotice("Sched gap query msgnum = %lu opnum = %lu", vs.msgnum + 1,
+              vs.opnum + 1);
       query_timer->Start();
     }
     return;
   } else {
+    if (query_timer->Active()) {
+      RNotice("Gap messag received");
+    }
     query_timer->Stop();
   }
 
@@ -167,7 +191,7 @@ void TomBFTReplica::HandleQuery(const TransportAddress &remote,
     return;
   }
   string sig = msg.sig();
-  msg.clear_sig();
+  msg.set_sig(string());
   if (!security.ReplicaVerifier(msg.replicaid())
            .Verify(msg.SerializeAsString(), sig)) {
     RWarning("Incorrect Query signature");
@@ -178,8 +202,8 @@ void TomBFTReplica::HandleQuery(const TransportAddress &remote,
   // TODO find by message number
   auto *e = log.Find(msg.opnum());
   if (!e) {
-    // TODO gap
-    NOT_IMPLEMENTED();
+    SendGapFindMessage(msg.opnum());
+    return;
   }
   auto &entry = e->As<TomBFTLogEntry>();
   proto::Message m;
@@ -192,7 +216,7 @@ void TomBFTReplica::HandleQuery(const TransportAddress &remote,
     query_reply.add_hmac_vec(entry.meta.sig_list[i].hmac, HMAC_LENGTH);
   }
   query_reply.set_replicaid(replicaIdx);
-  query_reply.clear_sig();
+  query_reply.set_sig(string());
   // string sig;
   security.ReplicaSigner(replicaIdx).Sign(query_reply.SerializeAsString(), sig);
   query_reply.set_sig(sig);
@@ -202,18 +226,19 @@ void TomBFTReplica::HandleQuery(const TransportAddress &remote,
 void TomBFTReplica::HandleQueryReply(const TransportAddress &remote,
                                      proto::QueryReply &msg) {
   string sig = msg.sig();
-  msg.clear_sig();
+  msg.set_sig(string());
   if (!security.ReplicaVerifier(replicaIdx)
            .Verify(msg.SerializeAsString(), sig)) {
     RWarning("Incorrect QueryReply signature");
     return;
   }
-  std::string seq_sig(msg.hmac_vec(replicaIdx), HMAC_LENGTH);
-  if (!security.SequencerVerifier(replicaIdx)
-           .Verify(msg.req().SerializeAsString(), seq_sig)) {
-    RWarning("Incorrect sequence in QueryReply");
-    return;
-  }
+  // ad-hoc disable
+  // std::string seq_sig(msg.hmac_vec(replicaIdx), HMAC_LENGTH);
+  // if (!security.SequencerVerifier(replicaIdx)
+  //          .Verify(msg.req().SerializeAsString(), seq_sig)) {
+  //   RWarning("Incorrect sequence in QueryReply");
+  //   return;
+  // }
   if (!security.ClientVerifier().Verify(
           msg.req().request().req().SerializeAsString(),
           msg.req().request().sig())) {
@@ -229,6 +254,134 @@ void TomBFTReplica::HandleQueryReply(const TransportAddress &remote,
   }
   pending_request_meta[msg.msgnum()] = meta;
   RNotice("Gap opnum = %lu filled", msg.opnum());
+  ProcessPendingRequest();
+}
+
+void TomBFTReplica::SendGapFindMessage(opnum_t opnum) {
+  RWarning("Gap find message opnum = %lu", opnum);
+  proto::Message m;
+  auto &gap_find_message = *m.mutable_gap_find_message();
+  gap_find_message.set_view(vs.view);
+  gap_find_message.set_opnum(opnum);
+  gap_find_message.set_replicaid(replicaIdx);
+  // TODO sig
+  gap_find_message.set_sig(string());
+  transport->SendMessageToAll(this, TomBFTMessage(m));
+}
+
+void TomBFTReplica::HandleGapFindMessage(const TransportAddress &remote,
+                                         proto::GapFindMessage &msg) {
+  // TODO sig
+  auto e = log.Find(msg.opnum());
+  if (!e) {
+    // TODO gap drop
+    return;
+  }
+  auto &entry = e->As<TomBFTLogEntry>();
+  RNotice("GapRecv opnum = %lu msgnum = %lu", entry.viewstamp.opnum,
+          entry.meta.msg_num);
+  proto::Message m;
+  auto &gap_recv_message = *m.mutable_gap_recv_message();
+  gap_recv_message.set_view(vs.view);
+  gap_recv_message.set_opnum(msg.opnum());
+  gap_recv_message.set_msgnum(entry.meta.msg_num);
+  *gap_recv_message.mutable_req() = entry.req_msg;
+  for (int i = 0; i < 4; i += 1) {
+    gap_recv_message.add_hmac_vec(entry.meta.sig_list[i].hmac, HMAC_LENGTH);
+  }
+  gap_recv_message.set_replicaid(replicaIdx);
+  // TODO sig
+  gap_recv_message.set_sig(string());
+  // gap_recv_message.clear_sig();
+  // // string sig;
+  // security.ReplicaSigner(replicaIdx).Sign(gap_recv_message.SerializeAsString(),
+  // sig); gap_recv_message.set_sig(sig);
+  transport->SendMessage(this, remote, TomBFTMessage(m));
+}
+
+void TomBFTReplica::HandleGapRecvMessage(const TransportAddress &remote,
+                                         proto::GapRecvMessage &msg) {
+  if (replicaIdx != configuration.GetLeaderIndex(vs.view)) {
+    RPanic("Unexpected GapRecv");
+  }
+  proto::Message m;
+  auto &gap_decision = *m.mutable_gap_decision();
+  gap_decision.set_view(vs.view);
+  gap_decision.set_opnum(msg.opnum());
+  *gap_decision.mutable_gap_recv_message() = msg;
+  gap_decision.set_replicaid(replicaIdx);
+  // TODO sig
+  gap_decision.set_sig(string());
+  decision_map[msg.opnum()] = gap_decision;
+  transport->SendMessageToAll(this, TomBFTMessage(m));
+}
+
+void TomBFTReplica::HandleGapDecision(const TransportAddress &remote,
+                                      proto::GapDecision &msg) {
+  decision_map[msg.opnum()] = msg;
+
+  proto::Message m;
+  auto &gap_prepare = *m.mutable_gap_prepare();
+  gap_prepare.set_view(vs.view);
+  gap_prepare.set_opnum(msg.opnum());
+  gap_prepare.set_recv(true);  // TODO
+  gap_prepare.set_replicaid(replicaIdx);
+  // TODO sig
+  gap_prepare.set_sig(string());
+  transport->SendMessageToAll(this, TomBFTMessage(m));
+  HandleGapPrepare(this->GetAddress(), gap_prepare);
+}
+
+void TomBFTReplica::HandleGapPrepare(const TransportAddress &remote,
+                                     proto::GapPrepare &msg) {
+  int replicaid = msg.replicaid();
+  msg.set_replicaid(0);
+  if (!prepare_set.Add(msg.opnum(), replicaid, msg)) {
+    return;
+  }
+
+  proto::Message m;
+  auto &gap_commit = *m.mutable_gap_commit();
+  gap_commit.set_view(vs.view);
+  gap_commit.set_opnum(msg.opnum());
+  gap_commit.set_recv(msg.recv());
+  gap_commit.set_replicaid(replicaIdx);
+  // TODO sig
+  gap_commit.set_sig(string());
+
+  if (past_prepared.count(msg.opnum())) {
+    transport->SendMessage(this, remote, TomBFTMessage(m));
+  } else {
+    transport->SendMessageToAll(this, TomBFTMessage(m));
+    HandleGapCommit(this->GetAddress(), gap_commit);
+  }
+  past_prepared.insert(msg.opnum());
+}
+
+void TomBFTReplica::HandleGapCommit(const TransportAddress &remote,
+                                    proto::GapCommit &msg) {
+  int replicaid = msg.replicaid();
+  msg.set_replicaid(0);
+  if (!commit_set.Add(msg.opnum(), replicaid, msg)) {
+    return;
+  }
+  if (!decision_map.count(msg.opnum())) {
+    // TODO
+    return;  // for now this is the super slow path: resend query
+  }
+  auto &recv = decision_map[msg.opnum()].gap_recv_message();
+  if (recv.msgnum() <= vs.msgnum) {
+    RNotice("skip past msg = %lu", recv.msgnum());
+    return;
+  }
+
+  pending_request_message[recv.msgnum()] = recv.req();
+  TomBFTMessage::Header meta;
+  meta.msg_num = recv.msgnum();
+  for (int i = 0; i < 4; i += 1) {
+    memcpy(meta.sig_list[i].hmac, recv.hmac_vec(i).c_str(), HMAC_LENGTH);
+  }
+  pending_request_meta[recv.msgnum()] = meta;
   ProcessPendingRequest();
 }
 

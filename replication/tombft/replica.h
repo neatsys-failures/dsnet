@@ -2,6 +2,7 @@
 #pragma once
 
 #include "common/log.h"
+#include "common/quorumset.h"
 #include "common/replica.h"
 #include "lib/signature.h"
 #include "replication/tombft/message.h"
@@ -33,7 +34,10 @@ class TomBFTReplica : public Replica {
                       size_t size) override;
 
  private:
+  const Security &security;
   Timeout *query_timer;
+  viewstamp_t vs;
+  Log log;
 
   void HandleRequest(const TransportAddress &remote, proto::Message &m,
                      TomBFTMessage::Header &meta);
@@ -45,9 +49,22 @@ class TomBFTReplica : public Replica {
 
   void ProcessPendingRequest();
 
-  const Security &security;
-  viewstamp_t vs;
-  Log log;
+  void SendGapFindMessage(opnum_t opnum);
+  void HandleGapFindMessage(const TransportAddress &remote,
+                            proto::GapFindMessage &msg);
+  void HandleGapRecvMessage(const TransportAddress &remote,
+                            proto::GapRecvMessage &msg);
+
+  std::unordered_map<opnum_t, proto::GapDecision> decision_map;
+  void HandleGapDecision(const TransportAddress &remote,
+                         proto::GapDecision &msg);
+
+  ByzantineProtoQuorumSet<opnum_t, proto::GapPrepare> prepare_set;
+  std::unordered_set<opnum_t> past_prepared;
+  void HandleGapPrepare(const TransportAddress &remote, proto::GapPrepare &msg);
+
+  ByzantineProtoQuorumSet<opnum_t, proto::GapCommit> commit_set;
+  void HandleGapCommit(const TransportAddress &remote, proto::GapCommit &msg);
 };
 
 }  // namespace tombft

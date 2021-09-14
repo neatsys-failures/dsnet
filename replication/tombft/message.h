@@ -50,7 +50,7 @@ class TomBFTMessage : public Message {
   }
   virtual std::string Type() const override { return pb_msg.Type(); }
   virtual size_t SerializedSize() const override {
-    return (sequencing ? sizeof(Header) : sizeof(size_t)) +
+    return (sequencing ? sizeof(Header) : sizeof(uint16_t)) +
            pb_msg.SerializedSize();
   }
   virtual void Parse(const void *buf, size_t size) override;

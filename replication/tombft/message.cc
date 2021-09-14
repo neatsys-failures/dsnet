@@ -13,7 +13,9 @@ namespace tombft {
 
 void TomBFTMessage::Parse(const void *buf, size_t size) {
   auto bytes = reinterpret_cast<const uint8_t *>(buf);
-  if (NTOH_SESSNUM(reinterpret_cast<const Header *>(buf)->sess_num != 0)) {
+  // Notice("sess = %u", ((uint16_t *)buf)[0]);
+  if (((uint16_t *)buf)[0]) {
+    // Notice("sess_num = %u", reinterpret_cast<const Header *>(buf)->sess_num);
     const size_t header_size = sizeof(Header);
     Assert(size > header_size);
     std::memcpy(&meta, buf, header_size);
@@ -23,8 +25,8 @@ void TomBFTMessage::Parse(const void *buf, size_t size) {
     size -= sizeof(Header);
   } else {
     meta.sess_num = 0;
-    bytes += sizeof(size_t);
-    size -= sizeof(size_t);
+    bytes += sizeof(uint16_t);
+    size -= sizeof(uint16_t);
   }
 
   pb_msg.Parse(bytes, size);
@@ -54,8 +56,9 @@ void TomBFTMessage::Serialize(void *buf) const {
     header_size = sizeof(Header);
     std::memcpy(bytes, &hton_meta, header_size);
   } else {
-    header_size = sizeof(size_t);
-    reinterpret_cast<Header *>(buf)->sess_num = 0;
+    // Notice("serial non-sequencing");
+    header_size = sizeof(uint16_t);
+    ((uint16_t *)buf)[0] = 0;
   }
   pb_msg.Serialize(bytes + header_size);
 }
