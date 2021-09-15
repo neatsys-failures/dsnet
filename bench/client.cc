@@ -40,14 +40,11 @@
 #include "lib/configuration.h"
 #include "lib/dpdktransport.h"
 #include "lib/message.h"
-#include "lib/signature.h"
 #include "lib/udptransport.h"
 #include "replication/fastpaxos/client.h"
 #include "replication/nopaxos/client.h"
-#include "replication/pbft/client.h"
 #include "replication/unreplicated/client.h"
 #include "replication/vr/client.h"
-#include "replication/tombft/client.h"
 
 static void Usage(const char *progName) {
   fprintf(stderr,
@@ -233,12 +230,6 @@ int main(int argc, char **argv) {
   std::vector<dsnet::BenchmarkClient *> benchClients;
   dsnet::ReplicaAddress addr(host, "0", dev);
 
-  dsnet::Secp256k1Signer signer;
-  dsnet::Secp256k1Verifier verifier(signer);
-  dsnet::Signer seq_signer;
-  dsnet::Verifier seq_verifier;
-  dsnet::HomogeneousSecurity security(signer, verifier, seq_signer,
-                                      seq_verifier);
   // dsnet::NopSecurity security;
   for (int i = 0; i < numClients; i++) {
     dsnet::Client *client;
@@ -258,14 +249,6 @@ int main(int argc, char **argv) {
 
       case PROTO_NOPAXOS:
         client = new dsnet::nopaxos::NOPaxosClient(config, addr, transport);
-        break;
-
-      case PROTO_PBFT:
-        client = new dsnet::pbft::PbftClient(config, addr, transport, security);
-        break;
-
-      case PROTO_TOMBFT:
-        client = new dsnet::tombft::TomBFTClient(config, addr, transport, security);
         break;
 
       default:
