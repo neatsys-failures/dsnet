@@ -8,48 +8,48 @@ LD = g++
 
 # CFLAGS := -g -Wall -pthread -iquote.obj/gen -Wno-uninitialized -Wno-array-bounds -O3 -DNASSERT
 CFLAGS := -g -Wall -pthread -iquote.obj/gen -Wno-uninitialized -Wno-array-bounds
-CXXFLAGS := -std=c++0x
+CXXFLAGS := -std=c++14
 LDFLAGS := -levent_pthreads -ldl
 LIBPATH := -I./
 CFLAGS += $(LIBPATH)
-## Debian package: check
-# CHECK_CFLAGS := $(shell pkg-config --cflags check)
-# CHECK_LDFLAGS := $(shell pkg-config --cflags --libs check)
 # Debian package: libprotobuf-dev
 PROTOBUF_CFLAGS := $(shell pkg-config --cflags protobuf)
 PROTOBUF_LDFLAGS := $(shell pkg-config --cflags --libs protobuf)
-CFLAGS += $(PROTOBUF_CFLAGS)
-LDFLAGS += $(PROTOBUF_LDFLAGS)
 PROTOC := protoc
 # Debian package: libevent-dev
 LIBEVENT_CFLAGS := $(shell pkg-config --cflags libevent)
 LIBEVENT_LDFLAGS := $(shell pkg-config --libs libevent)
-CFLAGS += $(LIBEVENT_CFLAGS)
-LDFLAGS += $(LIBEVENT_LDFLAGS)
 # Debian packages: libssl-dev libcrypto-dev
 LIBSSL_CFLAGS := $(shell pkg-config --cflags libssl) $(shell pkg-config --cflags libcrypto)
 LIBSSL_LDFLAGS := $(shell pkg-config --libs libssl) $(shell pkg-config --libs libcrypto)
-CFLAGS += $(LIBSSL_CFLAGS)
-LDFLAGS += $(LIBSSL_LDFLAGS)
 # Debian package: libunwind-dev
 # XXX Some versions of Ubuntu don't seem to have pkg-config files
 # installed for libunwind, so specify manually.
-LIBUNWIND_CFLAGS :=
-LIBUNWIND_LDFLAGS := -lunwind
-#LIBUNWIND_CFLAGS := $(shell pkg-config --cflags libunwind)
-#LIBUNWIND_LDFLAGS := $(shell pkg-config --libs libunwind)
-CFLAGS += $(LIBUNWIND_CFLAGS)
-LDFLAGS += $(LIBUNWIND_LDFLAGS)
-# Ubuntu install package: libsecp256k1
+# sgdxbc: not the case for 20.04
+# LIBUNWIND_CFLAGS :=
+# LIBUNWIND_LDFLAGS := -lunwind
+LIBUNWIND_CFLAGS := $(shell pkg-config --cflags libunwind)
+LIBUNWIND_LDFLAGS := $(shell pkg-config --libs libunwind)
+# Ubuntu package: libsecp256k1-dev
 LIBSECP256K1_CFLAGS := $(shell pkg-config --cflags libsecp256k1)
 LIBSECP256K1_LDFLAGS := $(shell pkg-config --libs libsecp256k1)
-CFLAGS += $(LIBSECP256K1_CFLAGS)
-LDFLAGS += $(LIBSECP256K1_LDFLAGS)
 # DPDK
 LIBDPDK_CFLAGS := $(shell pkg-config --cflags libdpdk)
 LIBDPDK_LDFLAGS := $(shell pkg-config --libs libdpdk)
-CFLAGS += $(LIBDPDK_CFLAGS)
-LDFLAGS += $(LIBDPDK_LDFLAGS)
+CFLAGS += \
+	$(PROTOBUF_CFLAGS) \
+	$(LIBEVENT_CFLAGS) \
+	$(LIBSSL_CFLAGS) \
+	$(LIBUNWIND_CFLAGS) \
+	$(LIBSECP256K1_CFLAGS) \
+	$(LIBDPDK_CFLAGS)
+LDFLAGS += \
+	$(PROTOBUF_LDFLAGS) \
+	$(LIBEVENT_LDFLAGS) \
+	$(LIBSSL_LDFLAGS) \
+	$(LIBUNWIND_LDFLAGS) \
+	$(LIBSECP256K1_LDFLAGS) \
+	$(LIBDPDK_LDFLAGS)
 
 # Google test framework. This doesn't use pkgconfig
 GTEST_DIR := /usr/src/gtest
@@ -109,7 +109,8 @@ o = .obj/$(d)
 SRCS :=
 # TEST_SRCS is just like SRCS, but these source files will be compiled
 # with testing related flags.
-TEST_SRCS :=
+# sgdxbc: All tests are using googletest now.
+# TEST_SRCS :=
 # GTEST_SRCS is tests that use Google's testing framework
 GTEST_SRCS :=
 
@@ -157,11 +158,12 @@ include tests/Rules.mk
 #
 PROTOOBJS := $(PROTOS:%.proto=.obj/%.o)
 PROTOSRCS := $(PROTOS:%.proto=.obj/gen/%.pb.cc)
-PROTOHEADERS := $(PROTOS:%.proto=%.pb.h)
+PROTOHEADERS := $(PROTOS:%.proto=.obj/gen/%.pb.h)
 
-$(PROTOSRCS) : .obj/gen/%.pb.cc: %.proto
+$(PROTOSRCS): .obj/gen/%.pb.cc: %.proto
 	@mkdir -p .obj/gen
 	$(call trace,PROTOC,$^,$(PROTOC) --cpp_out=.obj/gen $^)
+$(PROTOHEADERS): .obj/gen/%.pb.h: .obj/gen/%.pb.cc
 
 #
 # Compilation
@@ -174,16 +176,7 @@ $(PROTOSRCS) : .obj/gen/%.pb.cc: %.proto
 DEPFLAGS = -M -MF ${@:.o=.d} -MP -MT $@ -MG
 
 # $(call add-CFLAGS,$(TEST_SRCS),$(CHECK_CFLAGS))
-OBJS := $(SRCS:%.cc=.obj/%.o) $(TEST_SRCS:%.cc=.obj/%.o) $(GTEST_SRCS:%.cc=.obj/%.o)
-
-define compile
-	@mkdir -p $(dir $@)
-	$(call trace,$(1),$<,\
-	  $(CC) -iquote. $(CFLAGS) $(CFLAGS-$<) $(2) $(DEPFLAGS) -E $<)
-	$(Q)$(CC) -iquote. $(CFLAGS) $(CFLAGS-$<) $(2) -E -o .obj/$*.t $<
-	-o .obj/$*.i .obj/$*.t
-	$(Q)$(CC) $(CFLAGS) $(CFLAGS-$<) $(2) -c -o $@ .obj/$*.i
-endef
+OBJS := $(SRCS:%.cc=.obj/%.o) $(GTEST_SRCS:%.cc=.obj/%.o)
 
 define compilecxx
 	@mkdir -p $(dir $@)
@@ -196,17 +189,17 @@ endef
 # position-independent.  PIC objects end in -pic.o instead of just .o.
 # Link targets that build shared objects must depend on the -pic.o
 # versions.
-$(OBJS): .obj/%.o: %.cc $(PROTOSRCS) Makefile
-	$(call compilecxx,CC,)
+$(OBJS): .obj/%.o: %.cc
+	$(call compilecxx,CXX,)
 
-$(OBJS:%.o=%-pic.o): .obj/%-pic.o: %.cc $(PROTOSRCS) Makefile
-	$(call compilecxx,CCPIC,-fPIC)
+$(OBJS:%.o=%-pic.o): .obj/%-pic.o: %.cc
+	$(call compilecxx,CXXPIC,-fPIC)
 
-$(PROTOOBJS): .obj/%.o: .obj/gen/%.pb.cc Makefile
-	$(call compilecxx,CC,)
+$(PROTOOBJS): .obj/%.o: .obj/gen/%.pb.cc
+	$(call compilecxx,CXX,)
 
-$(PROTOOBJS:%.o=%-pic.o): .obj/%-pic.o: .obj/gen/%.pb.cc $(PROTOSRCS) Makefile
-	$(call compilecxx,CCPIC,-fPIC)
+$(PROTOOBJS:%.o=%-pic.o): .obj/%-pic.o: .obj/gen/%.pb.cc $(PROTOSRCS)
+	$(call compilecxx,CXXPIC,-fPIC)
 #
 # Linking
 #
@@ -231,7 +224,7 @@ GTEST_INTERNAL_SRCS := $(wildcard $(GTEST_DIR)/src/*.cc)
 GTEST_OBJS := $(patsubst %.cc,.obj/gtest/%.o,$(notdir $(GTEST_INTERNAL_SRCS)))
 
 $(GTEST_OBJS): .obj/gtest/%.o: $(GTEST_DIR)/src/%.cc
-	$(call compilecxx,CC,-I$(GTEST_DIR) -Wno-missing-field-initializers)
+	$(call compilecxx,CXX,-I$(GTEST_DIR) -Wno-missing-field-initializers)
 
 $(GTEST) : .obj/gtest/gtest-all.o
 	$(call trace,AR,$@,$(AR) $(ARFLAGS) $@ $^)
@@ -270,7 +263,7 @@ check: test
 TAGS:
 	$(Q)rm -f $@
 	$(call trace,ETAGS,sources,\
-	  etags $(SRCS) $(TEST_SRCS))
+	  etags $(SRCS))
 	$(call trace,ETAGS,headers,\
-	  etags -a $(foreach dir,$(sort $(dir $(SRCS) $(TEST_SRCS))),\
+	  etags -a $(foreach dir,$(sort $(dir $(SRCS))),\
 		     $(wildcard $(dir)*.h)))
