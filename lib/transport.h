@@ -128,14 +128,11 @@ public:
     virtual bool SendMessageToSequencer(TransportReceiver *src,
                                         int index,
                                         const Message &m) = 0;
-    virtual int Timer(uint64_t ms, timer_callback_t cb) = 0;
+    virtual int Timer(uint64_t ms, timer_callback_t cb, int core_id = -1) = 0;
     virtual bool CancelTimer(int id) = 0;
     virtual void CancelAllTimers() = 0;
     virtual void Run() = 0;
     virtual void Stop() = 0;
-    /* Inform the transport the core ID the thread is currently
-     * running on. */
-    virtual void SetCoreID(int core) = 0;
 };
 
 class Timeout

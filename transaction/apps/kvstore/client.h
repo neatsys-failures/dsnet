@@ -28,54 +28,50 @@
  *
  **********************************************************************/
 
-#ifndef __KVSTORE_CLIENT_H__
-#define __KVSTORE_CLIENT_H__
+#pragma once
+
+#include <string>
+#include <map>
+#include <functional>
 
 #include "lib/assert.h"
 #include "lib/message.h"
 #include "lib/configuration.h"
-
-#include "transaction/common/frontend/txnclient.h"
+#include "common/client.h"
 #include "transaction/apps/kvstore/kvstore-proto.pb.h"
-
-#include <string>
-#include <map>
 
 namespace dsnet {
 namespace transaction {
 namespace kvstore {
 
 typedef struct {
-    enum op_t {
+    enum OpType {
         GET,
         PUT
     };
-    op_t opType;
+    OpType op_type;
     std::string key;
     std::string value;
-} KVOp_t;
+} KVOp;
+
+// map: key -> value, bool: commit
+typedef std::function<void (const std::map<std::string, std::string> &, bool)> KVStoreCB;
 
 class KVClient
 {
 public:
-    KVClient(TxnClient *txn_client,
-             uint32_t nshards);
-    KVClient(const std::string configPath, const ReplicaAddress &addr,
-             int nshards, int mode); // for YCSB
+    KVClient(Client *proto_client, uint32_t nshards);
     ~KVClient();
 
-    bool InvokeKVTxn(const std::vector<KVOp_t> &kvops, std::map<std::string, std::string> &results, bool indep);
+    void InvokeKVTxn(const std::vector<KVOp> &kvops, bool indep, KVStoreCB cb);
 
-    // These 3 methods are used by YCSB
-    bool InvokeGetTxn(const std::string &key, std::string &value);
-    bool InvokePutTxn(const std::string &key, const std::string &value);
-    bool InvokeRMWTxn(const std::string &key1, const std::string &key2,
-                      const std::string &value1, const std::string &value2,
-                      bool indep);
+    void InvokeGetTxn(const std::string &key, KVStoreCB cb);
+    void InvokePutTxn(const std::string &key, const std::string &value, KVStoreCB cb);
+    void InvokeRMWTxn(const std::string &key1, const std::string &key2,
+            const std::string &value1, const std::string &value2,
+            bool indep, KVStoreCB cb);
 
-    /**
-        Made public for testing
-    */
+    // Made public for testing
     shardnum_t key_to_shard(const std::string &key, const uint32_t nshards) {
         uint64_t hash = 5381;
         const char* str = key.c_str();
@@ -87,19 +83,15 @@ public:
     };
 
 private:
-    TxnClient *txnClient;
-    uint32_t nshards;
-    Transport *transport;
-    Client *protoClient;
+    Client *proto_client_;
+    uint32_t nshards_;
+    KVStoreCB cb_;
 
-    /* Parse txnclient replies and store all GET results.
-     */
-    void ParseReplies(const std::map<shardnum_t, std::string> &replies,
-                      std::map<std::string, std::string> &results);
+    void InvokeCallback(const std::map<shardnum_t, std::string> &requests,
+                        const std::map<shardnum_t, std::string> &replies,
+                        bool commit);
 };
 
 } // namespace kvstore
 } // namespace transaction
 } // namespace dsnet
-
-#endif /* __KVSTORE_CLIENT_H__ */

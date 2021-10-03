@@ -46,12 +46,11 @@ public:
                                    const Configuration &config) override;
     virtual void Run() override;
     virtual void Stop() override;
-    virtual int Timer(uint64_t ms, timer_callback_t cb) override;
+    virtual int Timer(uint64_t ms, timer_callback_t cb, int core_id = -1) override;
     virtual bool CancelTimer(int id) override;
     virtual void CancelAllTimers() override;
     virtual ReplicaAddress
     ReverseLookupAddress(const TransportAddress &addr) const override;
-    virtual void SetCoreID(int core) override;
 
     void RunTransport(int tid);
 

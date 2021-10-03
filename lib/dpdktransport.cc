@@ -262,7 +262,7 @@ DPDKTransport::Stop()
 }
 
 int
-DPDKTransport::Timer(uint64_t ms, timer_callback_t cb)
+DPDKTransport::Timer(uint64_t ms, timer_callback_t cb, int core_id)
 {
     static const double hz = rte_get_timer_hz();
     std::lock_guard<std::mutex> lck(timers_lock_);
@@ -275,7 +275,8 @@ DPDKTransport::Timer(uint64_t ms, timer_callback_t cb)
     timers_[info->id] = info;
 
     uint64_t ticks = (ms == 0) ? 0 : hz / (1000 / (double)ms);
-    rte_timer_reset(&info->timer, ticks, SINGLE, thread_core_id, TimerCallback, info);
+    int lcore = core_id == -1 ? thread_core_id : core_id;
+    rte_timer_reset(&info->timer, ticks, SINGLE, lcore, TimerCallback, info);
 
     return info->id;
 }
@@ -414,13 +415,6 @@ DPDKTransport::ReverseLookupAddress(const TransportAddress &addr) const
     return ReplicaAddress(std::string(host_buf),
                           std::to_string(rte_be_to_cpu_16(da->udp_addr_)),
                           std::string(dev_buf));
-}
-
-void
-DPDKTransport::SetCoreID(int core)
-{
-    thread_core_id = core;
-    thread_tx_queue_id = core;
 }
 
 void

@@ -596,7 +596,7 @@ deliver:
 }
 
 int
-UDPTransport::Timer(uint64_t ms, timer_callback_t cb)
+UDPTransport::Timer(uint64_t ms, timer_callback_t cb, int core_id)
 {
     std::lock_guard<std::mutex> lck(this->timersLock);
     UDPTransportTimerInfo *info = new UDPTransportTimerInfo();

@@ -79,7 +79,7 @@ public:
                                    const dsnet::Configuration &config) override;
     void Run() override;
     void Stop() override;
-    int Timer(uint64_t ms, timer_callback_t cb) override;
+    int Timer(uint64_t ms, timer_callback_t cb, int core_id = -1) override;
     bool CancelTimer(int id) override;
     void CancelAllTimers() override;
     virtual ReplicaAddress
