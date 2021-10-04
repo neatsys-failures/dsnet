@@ -38,6 +38,7 @@ static int transport_thread(void *arg)
     thread_core_id = targ->tid;
     thread_tx_queue_id = targ->tid;
     targ->transport->RunTransport(targ->tid);
+    return 0;
 }
 
 DPDKTransportAddress::DPDKTransportAddress(const std::string &s)
@@ -216,7 +217,7 @@ DPDKTransport::~DPDKTransport()
 void
 DPDKTransport::RegisterInternal(TransportReceiver *receiver,
                                 const ReplicaAddress *addr,
-                                int group_id, int replica_id)
+                                int group_id, int replica_id, int core_id)
 {
     ASSERT(addr != nullptr);
     DPDKTransportAddress *da = new DPDKTransportAddress(LookupAddressInternal(*addr));

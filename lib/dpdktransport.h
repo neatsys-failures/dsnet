@@ -41,7 +41,7 @@ public:
     virtual ~DPDKTransport();
     virtual void RegisterInternal(TransportReceiver *receiver,
                                   const ReplicaAddress *addr,
-                                  int group_id, int replica_id) override;
+                                  int group_id, int replica_id, int core_id) override;
     virtual void ListenOnMulticast(TransportReceiver *receiver,
                                    const Configuration &config) override;
     virtual void Run() override;

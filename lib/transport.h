@@ -78,14 +78,22 @@ class Transport
 {
 public:
     virtual ~Transport() {}
+    /*
+     * Set core_id to -1 if replica can run on any core.
+     */
     virtual void RegisterReplica(TransportReceiver *receiver,
                                  const Configuration &config,
                                  int groupIdx,
-                                 int replicaIdx) = 0;
-    /* Set addr to nullptr if receiver can be bound to any address */
+                                 int replicaIdx,
+                                 int core_id = -1) = 0;
+    /*
+     * Set addr to nullptr if receiver can be bound to any address.
+     * Set core_id to -1 if receiver can run on any core.
+     */
     virtual void RegisterAddress(TransportReceiver *receiver,
                                  const Configuration &config,
-                                 const ReplicaAddress *addr) = 0;
+                                 const ReplicaAddress *addr,
+                                 int core_id = -1) = 0;
     virtual TransportAddress *
     LookupAddress(const dsnet::ReplicaAddress &addr) const = 0;
     virtual ReplicaAddress

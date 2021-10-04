@@ -231,7 +231,7 @@ UDPTransport::~UDPTransport()
 void
 UDPTransport::RegisterInternal(TransportReceiver *receiver,
                                const dsnet::ReplicaAddress *addr,
-                               int groupIdx, int replicaIdx)
+                               int groupIdx, int replicaIdx, int core_id)
 {
     struct sockaddr_in sin;
 

@@ -74,7 +74,7 @@ public:
     virtual ~UDPTransport();
     virtual void RegisterInternal(TransportReceiver *receiver,
                                   const dsnet::ReplicaAddress *addr,
-                                  int groupIdx, int replicaIdx) override;
+                                  int groupIdx, int replicaIdx, int core_id) override;
     virtual void ListenOnMulticast(TransportReceiver *receiver,
                                    const dsnet::Configuration &config) override;
     void Run() override;
