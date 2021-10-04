@@ -49,7 +49,8 @@ public:
     SpannerClient(const Configuration &config,
                   const ReplicaAddress &addr,
                   Transport *transport,
-                  uint64_t clientid = 0);
+                  uint64_t clientid = 0,
+                  int core_id = -1);
     ~SpannerClient();
 
     void Invoke(const string &request,

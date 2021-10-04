@@ -41,8 +41,9 @@ using namespace proto;
 SpannerClient::SpannerClient(const Configuration &config,
                              const ReplicaAddress &addr,
                              Transport *transport,
-                             uint64_t clientid)
-    : Client(config, addr, transport, clientid),
+                             uint64_t clientid,
+                             int core_id)
+    : Client(config, addr, transport, clientid, core_id),
     replySet(1)
 {
     this->txnid = (this->clientid / 10000) * 10000;

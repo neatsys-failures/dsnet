@@ -38,7 +38,7 @@
 namespace dsnet {
 
 Client::Client(const Configuration &config, const ReplicaAddress &addr,
-               Transport *transport, uint64_t clientid)
+               Transport *transport, uint64_t clientid, int core_id)
     : config(config), transport(transport)
 {
     this->clientid = clientid;
@@ -53,7 +53,7 @@ Client::Client(const Configuration &config, const ReplicaAddress &addr,
         this->clientid = dis(gen);
     }
 
-    transport->RegisterAddress(this, config, &addr);
+    transport->RegisterAddress(this, config, &addr, core_id);
     node_addr_ = new ReplicaAddress(transport->ReverseLookupAddress(*transport_addr_));
 }
 

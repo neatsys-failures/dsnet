@@ -100,6 +100,115 @@ ConstructArguments(int argc, char **argv, int n_cores, const std::string &cmdlin
     }
 }
 
+#define FLOW_TRANSPORT_PRIORITY 0
+#define FLOW_DEFAULT_PRIORITY 1
+#define FLOW_PATTERN_NUM 4
+#define FLOW_ETH_TYPE_MASK 0xFFFF
+#define FLOW_IPV4_PROTO_UDP 0x11
+#define FLOW_IPV4_PROTO_MASK 0xFF
+#define FLOW_UDP_PORT_MASK 0xFF00
+#define FLOW_ACTION_NUM 2
+
+static void
+GenerateFlowRules(int dev_port, int n_cores)
+{
+    if (n_cores <= 1) {
+        return;
+    }
+
+    {
+        /* Default flow rule: drop */
+        struct rte_flow_attr attr;
+        memset(&attr, 0, sizeof(struct rte_flow_attr));
+        attr.priority = FLOW_DEFAULT_PRIORITY;
+        attr.ingress = 1;
+        struct rte_flow_item patterns[2];
+        memset(patterns, 0, sizeof(patterns));
+        struct rte_flow_item_eth eth_spec;
+        struct rte_flow_item_eth eth_mask;
+        memset(&eth_spec, 0, sizeof(struct rte_flow_item_eth));
+        memset(&eth_mask, 0, sizeof(struct rte_flow_item_eth));
+        patterns[0].type = RTE_FLOW_ITEM_TYPE_ETH;
+        patterns[0].spec = &eth_spec;
+        patterns[0].mask = &eth_mask;
+        patterns[1].type = RTE_FLOW_ITEM_TYPE_END;
+        struct rte_flow_action actions[2];
+        actions[0].type = RTE_FLOW_ACTION_TYPE_DROP;
+        actions[1].type = RTE_FLOW_ACTION_TYPE_END;
+        if (rte_flow_validate(dev_port, &attr, patterns, actions, nullptr) != 0) {
+            Panic("Default flow rule is not valid");
+        }
+        if (rte_flow_create(dev_port, &attr, patterns, actions, nullptr) == nullptr) {
+            Panic("rte_flow_create failed");
+        }
+    }
+
+    /* Configure receive flow rule for each core */
+    for (int core = 0; core < n_cores; core++) {
+        // Each core gets one rx queue
+        uint16_t rx_queue_id = core;
+
+        /* Attributes */
+        struct rte_flow_attr attr;
+        memset(&attr, 0, sizeof(struct rte_flow_attr));
+        attr.priority = FLOW_TRANSPORT_PRIORITY;
+        attr.ingress = 1;
+
+        /* Header match */
+        // Ethernet: accept only IPv4 packets
+        struct rte_flow_item patterns[FLOW_PATTERN_NUM];
+        memset(patterns, 0, sizeof(patterns));
+        struct rte_flow_item_eth eth_spec;
+        struct rte_flow_item_eth eth_mask;
+        memset(&eth_spec, 0, sizeof(struct rte_flow_item_eth));
+        memset(&eth_mask, 0, sizeof(struct rte_flow_item_eth));
+        eth_spec.type = rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4);
+        eth_mask.type = rte_cpu_to_be_16(FLOW_ETH_TYPE_MASK);
+        patterns[0].type = RTE_FLOW_ITEM_TYPE_ETH;
+        patterns[0].spec = &eth_spec;
+        patterns[0].mask = &eth_mask;
+        // IPv4: accept only UDP packets
+        struct rte_flow_item_ipv4 ip_spec;
+        struct rte_flow_item_ipv4 ip_mask;
+        memset(&ip_spec, 0, sizeof(struct rte_flow_item_ipv4));
+        memset(&ip_mask, 0, sizeof(struct rte_flow_item_ipv4));
+        ip_spec.hdr.next_proto_id = FLOW_IPV4_PROTO_UDP;
+        ip_mask.hdr.next_proto_id = FLOW_IPV4_PROTO_MASK;
+        patterns[1].type = RTE_FLOW_ITEM_TYPE_IPV4;
+        patterns[1].spec = &ip_spec;
+        patterns[1].mask = &ip_mask;
+        // UDP: use the first byte of destination port to steer packet
+        struct rte_flow_item_udp udp_spec;
+        struct rte_flow_item_udp udp_mask;
+        memset(&udp_spec, 0, sizeof(struct rte_flow_item_udp));
+        memset(&udp_mask, 0, sizeof(struct rte_flow_item_udp));
+        udp_spec.hdr.dst_port = rte_cpu_to_be_16(core << 8);
+        udp_mask.hdr.dst_port = rte_cpu_to_be_16(FLOW_UDP_PORT_MASK);
+        patterns[2].type = RTE_FLOW_ITEM_TYPE_UDP;
+        patterns[2].spec = &udp_spec;
+        patterns[2].mask = &udp_mask;
+
+        patterns[3].type = RTE_FLOW_ITEM_TYPE_END;
+
+        /* Actions: forward to queues */
+        struct rte_flow_action actions[FLOW_ACTION_NUM];
+        struct rte_flow_action_queue action_queue;
+        memset(actions, 0, sizeof(actions));
+        action_queue.index = rx_queue_id;
+        actions[0].type = RTE_FLOW_ACTION_TYPE_QUEUE;
+        actions[0].conf = &action_queue;
+        actions[1].type = RTE_FLOW_ACTION_TYPE_END;
+
+        /* Validate and install flow rules */
+        if (rte_flow_validate(dev_port, &attr, patterns, actions, nullptr) != 0) {
+            Panic("Flow rule is not valid");
+        }
+        if (rte_flow_create(dev_port, &attr, patterns, actions, nullptr) == nullptr) {
+            Panic("rte_flow_create failed");
+        }
+    }
+}
+
 DPDKTransport::DPDKTransport(int dev_port,
         double drop_rate,
         int n_cores,
@@ -207,6 +316,8 @@ DPDKTransport::DPDKTransport(int dev_port,
         Panic("rte_eth_promiscuous_enable failed");
     }
 
+    // Create flow rules
+    GenerateFlowRules(dev_port, n_cores);
 }
 
 DPDKTransport::~DPDKTransport()
@@ -221,6 +332,11 @@ DPDKTransport::RegisterInternal(TransportReceiver *receiver,
 {
     ASSERT(addr != nullptr);
     DPDKTransportAddress *da = new DPDKTransportAddress(LookupAddressInternal(*addr));
+    if (core_id >= 0) {
+        // We use first byte of udp port to steer packet
+        uint16_t udp_port = (rte_be_to_cpu_16(da->udp_addr_) & 0xFF) | (core_id << 8);
+        da->udp_addr_ = rte_cpu_to_be_16(udp_port);
+    }
     receiver->SetAddress(da);
     receivers_[da->udp_addr_] = receiver;
 }
