@@ -378,18 +378,18 @@ main(int argc, char **argv)
             Client *pc;
             switch (mode) {
                 case PROTO_ERIS:
-                    pc = new eris::ErisClient(config, addr, transport);
+                    pc = new eris::ErisClient(config, addr, transport, 0, c);
                     break;
                 case PROTO_GRANOLA:
-                    pc = new granola::GranolaClient(config, addr, transport);
+                    pc = new granola::GranolaClient(config, addr, transport, 0, c);
                     break;
                 case PROTO_UNREPLICATED:
                     pc =
                         new transaction::unreplicated::UnreplicatedClient(config,
-                                addr, transport);
+                                addr, transport, 0, c);
                     break;
                 case PROTO_SPANNER:
-                    pc = new spanner::SpannerClient(config, addr, transport);
+                    pc = new spanner::SpannerClient(config, addr, transport, 0, c);
                     break;
                 case PROTO_TAPIR:
                     Panic("Currently not supporting TAPIR");
