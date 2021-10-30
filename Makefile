@@ -197,6 +197,8 @@ $(OBJS): .obj/%.o: %.cc
 $(OBJS:%.o=%-pic.o): .obj/%-pic.o: %.cc
 	$(call compilecxx,CXXPIC,-fPIC)
 
+# common/request.proto is included in all protocols
+# making it a universal dependency has only minor false positive (e.g., latency-format), so should be fine
 $(PROTOOBJS): .obj/%.o: .obj/gen/%.pb.cc $(LIB-request)
 	$(call compilecxx,CXX,)
 
