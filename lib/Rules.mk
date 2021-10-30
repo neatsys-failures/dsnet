@@ -16,6 +16,7 @@ LIB-hashtable := $(LIB-hash) $(LIB-message)
 LIB-memory := $(o)memory.o
 
 LIB-latency := $(o)latency.o $(o)latency-format.o $(LIB-message)
+$(o)latency.o: $(o)latency-format.o
 
 LIB-configuration := $(o)configuration.o $(LIB-message)
 

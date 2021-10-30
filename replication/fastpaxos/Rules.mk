@@ -13,3 +13,5 @@ OBJS-fastpaxos-client := $(o)client.o $(o)fastpaxos-proto.o \
 OBJS-fastpaxos-replica := $(o)replica.o $(o)fastpaxos-proto.o \
                    $(OBJS-replica) $(LIB-message) \
                    $(LIB-configuration) $(LIB-pbmessage)
+
+$(o)client.o $(o)replica.o: $(o)fastpaxos-proto.o

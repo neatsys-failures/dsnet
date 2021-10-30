@@ -2,12 +2,14 @@
 # Top-level makefile for specpaxos
 #
 
-CC = gcc
-CXX = g++
-LD = g++
+CC = cc
+CXX = c++
+LD = c++
 
-# CFLAGS := -g -Wall -pthread -iquote.obj/gen -Wno-uninitialized -Wno-array-bounds -O3 -DNASSERT
 CFLAGS := -g -Wall -pthread -iquote.obj/gen -Wno-uninitialized -Wno-array-bounds
+# CFLAGS += -Weverything  # clang only
+CFLAGS += -O3 -DNASSERT  # bench mode
+
 CXXFLAGS := -std=c++14
 LDFLAGS := -levent_pthreads -ldl
 LIBPATH := -I./
@@ -195,10 +197,10 @@ $(OBJS): .obj/%.o: %.cc
 $(OBJS:%.o=%-pic.o): .obj/%-pic.o: %.cc
 	$(call compilecxx,CXXPIC,-fPIC)
 
-$(PROTOOBJS): .obj/%.o: .obj/gen/%.pb.cc
+$(PROTOOBJS): .obj/%.o: .obj/gen/%.pb.cc $(LIB-request)
 	$(call compilecxx,CXX,)
 
-$(PROTOOBJS:%.o=%-pic.o): .obj/%-pic.o: .obj/gen/%.pb.cc $(PROTOSRCS)
+$(PROTOOBJS:%.o=%-pic.o): .obj/%-pic.o: .obj/gen/%.pb.cc
 	$(call compilecxx,CXXPIC,-fPIC)
 #
 # Linking

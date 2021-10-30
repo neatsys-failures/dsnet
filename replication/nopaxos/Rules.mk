@@ -15,3 +15,5 @@ OBJS-nopaxos-replica := $(o)replica.o $(o)nopaxos-proto.o $(o)message.o \
 		        $(LIB-configuration) $(LIB-pbmessage)
 
 OBJS-nopaxos-sequencer := $(o)sequencer.o
+
+$(o)client.o $(o)replica.o: $(o)nopaxos-proto.o

@@ -1,0 +1,5 @@
+f 1
+replica localhost:1100
+replica localhost:1101
+replica localhost:1102
+replica localhost:1103
