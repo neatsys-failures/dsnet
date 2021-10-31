@@ -29,8 +29,6 @@
  **********************************************************************/
 
 #include "lib/configuration.h"
-#include "common/client.h"
-#include "common/replica.h"
 #include "lib/transport.h"
 #include "lib/simtransport.h"
 #include "replication/unreplicated/client.h"
@@ -56,8 +54,9 @@ public:
     UnrepTestApp() { };
     ~UnrepTestApp() { };
 
-    void ReplicaUpcall(opnum_t opnum, const string &req, string &reply,
-                       void *arg = nullptr, void *ret = nullptr) override {
+    void ReplicaUpcall(
+        opnum_t opnum, const string &req, string &reply,
+        void *arg = nullptr, void *ret = nullptr) override {
         replicaLastOp = req;
         reply = "reply: " + req;
     }
@@ -77,24 +76,17 @@ static void ClientUpcallHandler(const string &req, const string &reply)
 
 TEST(Unreplicated, OneOp)
 {
-    map<int, vector<ReplicaAddress> > replicaAddrs =
-        { {0, {
-                  { "localhost", "12345" }
-              }
-          } };
+    map<int, vector<ReplicaAddress> > replicaAddrs = { 
+        {0, {{ "localhost", "12345" }}} 
+    };
     Configuration c(1, 1, 0, replicaAddrs);
-
     SimulatedTransport transport;
-
     UnrepTestApp app;
-
     UnreplicatedReplica replica(c, 0, true, &transport, &app);
-    UnreplicatedClient client(c,
-                              ReplicaAddress("localhost", "0"),
-                              &transport);
+    UnreplicatedClient client(
+        c, ReplicaAddress("localhost", "0"), &transport);
 
     client.Invoke(string("test"), ClientUpcallHandler);
-
     transport.Run();
 
     EXPECT_EQ(replicaLastOp, "test");
@@ -105,23 +97,17 @@ TEST(Unreplicated, OneOp)
 
 TEST(Unreplicated, Unlogged)
 {
-    map<int, vector<ReplicaAddress> > replicaAddrs =
-        { {0, {
-                  { "localhost", "12345" }
-              }
-          } };
+    map<int, vector<ReplicaAddress> > replicaAddrs = { 
+        {0, {{ "localhost", "12345" }}} 
+    };
     Configuration c(1, 1, 0, replicaAddrs);
-
     SimulatedTransport transport;
     UnrepTestApp app;
-
     UnreplicatedReplica replica(c, 0, true, &transport, &app);
-    UnreplicatedClient client(c,
-                              ReplicaAddress("localhost", "0"),
-                              &transport);
+    UnreplicatedClient client(
+        c, ReplicaAddress("localhost", "0"), &transport);
 
     client.InvokeUnlogged(0, string("test2"), ClientUpcallHandler);
-
     transport.Run();
 
     EXPECT_EQ(replicaLastOp, "test");

@@ -43,6 +43,7 @@ $(d)unreplicated-test: $(o)unreplicated-test.o \
 	$(OBJS-unreplicated-client) \
 	$(LIB-simtransport) \
 	$(GTEST_MAIN)
+$(o)unreplicated-test.o: $(OBJS-unreplicated-replica) $(OBJS-unreplicated-client)
 
 $(d)spec-test: $(o)spec-test.o \
 	$(OBJS-spec-replica) \
