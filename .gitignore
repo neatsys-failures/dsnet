@@ -3,3 +3,5 @@ TAGS
 *~
 *.swp
 *-test
+
+.python-version

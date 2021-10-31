@@ -41,9 +41,9 @@ namespace unreplicated {
 
 using namespace proto;
 
-void
-UnreplicatedReplica::HandleRequest(const TransportAddress &remote,
-                                   const proto::RequestMessage &msg)
+void UnreplicatedReplica::HandleRequest(
+    const TransportAddress &remote,
+    const proto::RequestMessage &msg) 
 {
     ToClientMessage m;
     ReplyMessage *reply = m.mutable_reply();
@@ -62,21 +62,17 @@ UnreplicatedReplica::HandleRequest(const TransportAddress &remote,
         }
     }
 
-    ++last_op_;
-    viewstamp_t v;
-    v.view = 0;
-    v.opnum = last_op_;
-    v.sessnum = 0;
-    v.msgnum = 0;
+    last_op += 1;
+    viewstamp_t v(0, last_op);
     log.Append(new LogEntry(v, LOG_STATE_RECEIVED, msg.req()));
 
-    Execute(0, msg.req(), *reply);
+    Execute(last_op, msg.req(), *reply);
 
     // The protocol defines these as required, even if they're not
     // meaningful.
     reply->set_view(0);
-    reply->set_opnum(0);
-    *(reply->mutable_req()) = msg.req();
+    reply->set_opnum(last_op);
+    *reply->mutable_req() = msg.req();
 
     if (!(transport->SendMessage(this, remote, PBMessage(m))))
         Warning("Failed to send reply message");
@@ -84,9 +80,8 @@ UnreplicatedReplica::HandleRequest(const TransportAddress &remote,
     UpdateClientTable(msg.req(), m);
 }
 
-void
-UnreplicatedReplica::HandleUnloggedRequest(const TransportAddress &remote,
-                                           const UnloggedRequestMessage &msg)
+void UnreplicatedReplica::HandleUnloggedRequest(
+    const TransportAddress &remote, const UnloggedRequestMessage &msg)
 {
     ToClientMessage m;
     UnloggedReplyMessage *reply = m.mutable_unlogged_reply();
@@ -97,25 +92,22 @@ UnreplicatedReplica::HandleUnloggedRequest(const TransportAddress &remote,
         Warning("Failed to send reply message");
 }
 
-UnreplicatedReplica::UnreplicatedReplica(Configuration config,
-                                         int myIdx,
-                                         bool initialize,
-                                         Transport *transport,
-                                         AppReplica *app)
-    : Replica(config, 0, myIdx, initialize, transport, app),
-      log(false)
+UnreplicatedReplica::UnreplicatedReplica(
+    Configuration config, int myIdx, bool initialize,
+    Transport *transport, AppReplica *app): 
+    Replica(config, 0, myIdx, initialize, transport, app),
+    log(false)
 {
     if (!initialize) {
         Panic("Recovery does not make sense for unreplicated mode");
     }
 
     this->status = STATUS_NORMAL;
-    this->last_op_ = 0;
+    this->last_op = 0;
 }
 
-void
-UnreplicatedReplica::ReceiveMessage(const TransportAddress &remote,
-                                    void *buf, size_t size)
+void UnreplicatedReplica::ReceiveMessage(
+    const TransportAddress &remote, void *buf, size_t size)
 {
     static ToReplicaMessage replica_msg;
     static PBMessage m(replica_msg);
@@ -134,14 +126,12 @@ UnreplicatedReplica::ReceiveMessage(const TransportAddress &remote,
     }
 }
 
-void
-UnreplicatedReplica::UpdateClientTable(const Request &req,
-				       const ToClientMessage &reply)
+void UnreplicatedReplica::UpdateClientTable(
+    const Request &req, const ToClientMessage &reply)
 {
     ClientTableEntry &entry = clientTable[req.clientid()];
 
     ASSERT(entry.lastReqId <= req.clientreqid());
-
     if (entry.lastReqId == req.clientreqid()) {
         // Duplicate request
         return;

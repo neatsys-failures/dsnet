@@ -43,22 +43,21 @@ namespace unreplicated {
 class UnreplicatedReplica : public Replica
 {
 public:
-    UnreplicatedReplica(Configuration config, int myIdx,
-                        bool initialize,
-                        Transport *transport, AppReplica *app);
-    void ReceiveMessage(const TransportAddress &remote,
-                        void *buf, size_t size) override;
+    UnreplicatedReplica(
+        Configuration config, int myIdx, bool initialize,
+        Transport *transport, AppReplica *app);
+    void ReceiveMessage(
+        const TransportAddress &remote, void *buf, size_t size) override;
 
 private:
-    void HandleRequest(const TransportAddress &remote,
-                       const proto::RequestMessage &msg);
-    void HandleUnloggedRequest(const TransportAddress &remote,
-                       const proto::UnloggedRequestMessage &msg);
+    void HandleRequest(
+        const TransportAddress &remote, const proto::RequestMessage &msg);
+    void HandleUnloggedRequest(
+        const TransportAddress &remote, const proto::UnloggedRequestMessage &msg);
 
-    void UpdateClientTable(const Request &req,
-			   const proto::ToClientMessage &reply);
+    void UpdateClientTable(const Request &req, const proto::ToClientMessage &reply);
 
-    opnum_t last_op_;
+    opnum_t last_op;
     Log log;
     struct ClientTableEntry
     {
