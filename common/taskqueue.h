@@ -1,5 +1,6 @@
 #pragma once
 #include "lib/transport.h"
+#include "lib/ctpl.h"
 
 #include <functional>
 #include <queue>
@@ -14,6 +15,7 @@ namespace dsnet {
 // * PrologueQueue is ordered. It will not release task that enqueue later first.
 // * PrologueQueue is specific for message-processing.
 class PrologueQueue {
+    using OwnedMessage = std::unique_ptr<Message>;
     // Prologue callback should:
     // * take ownership of message. It is callback's responsibility to keep message alive
     //   before returning it.
@@ -21,12 +23,14 @@ class PrologueQueue {
     //   done by replica sequencially.
     // * optionally decide whether the message is dropped. If callback drops the message,
     //   it returns nullptr instead of the message.
-    using Prologue = std::function<std::unique_ptr<Message> (std::unique_ptr<Message>)>;
+    using Prologue = std::function<OwnedMessage (OwnedMessage)>;
 public:
-    PrologueQueue();
+    PrologueQueue(int nb_thread);
+    void Enqueue(OwnedMessage message, Prologue prologue);
+    OwnedMessage Dequeue();
 private:
-
-    std::queue<std::future<bool>> tasks;
+    std::queue<std::future<OwnedMessage>> tasks;
+    ctpl::thread_pool pool;
 };
 
 }
