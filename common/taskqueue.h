@@ -15,6 +15,7 @@ namespace dsnet {
 // * PrologueQueue is ordered. It will not release task that enqueue later first.
 // * PrologueQueue is specific for message-processing.
 class PrologueQueue {
+public:
     using OwnedMessage = std::unique_ptr<Message>;
     // Prologue callback should:
     // * take ownership of message. It is callback's responsibility to keep message alive
@@ -24,7 +25,6 @@ class PrologueQueue {
     // * optionally decide whether the message is dropped. If callback drops the message,
     //   it returns nullptr instead of the message.
     using Prologue = std::function<OwnedMessage (OwnedMessage)>;
-public:
     PrologueQueue(int nb_thread);
     void Enqueue(OwnedMessage message, Prologue prologue);
     OwnedMessage Dequeue();
