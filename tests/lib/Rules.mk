@@ -7,7 +7,7 @@ d := $(dir $(lastword $(MAKEFILE_LIST)))
 GTEST_SRCS += $(addprefix $(d), \
 			  configuration-test.cc \
 			  simtransport-test.cc \
-			  quorumset-test.cc)
+			  taskqueue-test.cc)
 
 PROTOS += $(d)simtransport-testmessage.proto
 
@@ -19,7 +19,6 @@ $(d)simtransport-test: $(o)simtransport-test.o $(LIB-simtransport) $(LIB-pbmessa
 
 TEST_BINS += $(d)simtransport-test
 
+$(d)taskqueue-test: $(o)taskqueue-test.o $(LIB-taskqueue) $(GTEST_MAIN)
 
-$(d)quorumset-test: $(o)quorumset-test.o $(LIB-message) $(GTEST_MAIN)
-
-TEST_BINS += $(d)quorumset-test
+TEST_BINS += $(d)taskqueue-test
