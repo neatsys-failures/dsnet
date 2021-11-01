@@ -7,7 +7,8 @@ d := $(dir $(lastword $(MAKEFILE_LIST)))
 GTEST_SRCS += $(addprefix $(d), \
 			  configuration-test.cc \
 			  simtransport-test.cc \
-			  taskqueue-test.cc)
+			  taskqueue-test.cc \
+			  signedmessage-test.cc)
 
 PROTOS += $(d)simtransport-testmessage.proto
 
@@ -22,3 +23,7 @@ TEST_BINS += $(d)simtransport-test
 $(d)taskqueue-test: $(o)taskqueue-test.o $(LIB-taskqueue) $(GTEST_MAIN)
 
 TEST_BINS += $(d)taskqueue-test
+
+$(d)signedmessage-test: $(o)signedmessage-test.o $(LIB-signedmessage) $(GTEST_MAIN)
+
+TEST_BINS += $(d)signedmessage-test
