@@ -29,6 +29,7 @@ $(d)vr-test: $(o)vr-test.o \
 	$(OBJS-vr-client) \
 	$(LIB-simtransport) \
 	$(GTEST_MAIN)
+$(o)vr-test.o: $(OBJS-vr-replica) $(OBJS-vr-client)
 
 $(d)nopaxos-test: $(o)nopaxos-test.o \
 	$(OBJS-nopaxos-replica) \

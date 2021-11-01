@@ -98,51 +98,6 @@ class QuorumSet {
   std::map<IDTYPE, std::map<int, MSGTYPE>> messages;
 };
 
-template <typename SeqNumType, typename MsgType>
-class ByzantineQuorumSet {
- private:
-  std::unordered_map<SeqNumType,
-                     std::unordered_map<MsgType, std::unordered_set<int>>>
-      messages;
-  int numRequired;
-
- public:
-  ByzantineQuorumSet(int numRequired) : numRequired(numRequired) {}
-  void Clear() { messages.clear(); }
-  void Clear(SeqNumType seqNum) { messages[seqNum].clear(); }
-  bool CheckForQuorum(SeqNumType seqNum, const MsgType &msg) {
-    // Assert((int)messages[seqNum][msg].size() <= numRequired);
-    return (int)messages[seqNum][msg].size() >= numRequired;
-  }
-  bool Add(SeqNumType seqNum, int replicaId, const MsgType &msg) {
-    // is it necessary to check whether (faulty) replica sending multiple
-    // versions of one message?
-    messages[seqNum][msg].insert(replicaId);
-    return CheckForQuorum(seqNum, msg);
-  }
-};
-
-template <typename SeqNumType, typename MsgType,
-          // would be `typename = enable_if_t<is_base_of_v<Message, MsgType>>`
-          // if we have C++17
-          typename = typename std::enable_if<
-              std::is_base_of<google::protobuf::Message, MsgType>::value>::type>
-class ByzantineProtoQuorumSet {
- private:
-  ByzantineQuorumSet<SeqNumType, std::string> inner;
-
- public:
-  ByzantineProtoQuorumSet(int numRequired) : inner(numRequired) {}
-  void Clear() { inner.Clear(); };
-  void Clear(SeqNumType seqNum) { inner.Clear(seqNum); }
-  bool CheckForQuorum(SeqNumType seqNum, const MsgType &msg) {
-    return inner.CheckForQuorum(seqNum, msg.SerializeAsString());
-  }
-  bool Add(SeqNumType seqNum, int replicaId, const MsgType &msg) {
-    return inner.Add(seqNum, replicaId, msg.SerializeAsString());
-  }
-};
-
 }  // namespace dsnet
 
 #endif  // _COMMON_QUORUMSET_H_
