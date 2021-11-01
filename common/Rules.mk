@@ -12,7 +12,7 @@ LIB-pbmessage := $(o)pbmessage.o
 
 LIB-taskqueue := $(o)taskqueue.o
 
-LIB-signedmessage := $(o)signedmessage.o
+LIB-signedmessage := $(o)signedmessage.o $(LIB-message)
 
 OBJS-client := $(o)client.o \
 		$(LIB-message) $(LIB-configuration) $(LIB-transport) \

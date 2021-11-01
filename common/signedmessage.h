@@ -16,11 +16,15 @@ public:
     SignedMessage(Message &inner_message, std::string identifier);
     // undefined behavior: call IsVerified() before/without calling Parse()
     bool IsVerified() const {
-        return verified;
+        return is_verified;
     }
+    // undefiend behavior: call Match() before calling Parse()
+    // Serialize() does not enable Match(), because it accepts const `this`, digest cannot be filled
+    static bool Match(SignedMessage message1, SignedMessage message2);
 private:
     Message &inner_message;
-    bool verified;
+    std::string identifier, digest;
+    bool is_verified;
 };
 
 }
