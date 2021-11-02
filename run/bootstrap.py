@@ -5,11 +5,23 @@ import subprocess as sp
 import tempfile
 import pathlib
 import sys
+import os
 
 SYS_VERSION = 'Ubuntu 18.04.6 LTS'
 if SYS_VERSION not in sp.run(['lsb_release', '-d'], stdout=sp.PIPE, encoding='utf8').stdout:
     print('Expect OS version: ', SYS_VERSION)
     sys.exit(1)
+
+if 'PKG_CONFIG_PATH' not in os.environ:  # TODO
+    with open(pathlib.Path.home() / '.bashrc', 'a+') as bashrc_file:
+        bashrc_content = bashrc_file.read()
+        bashrc_content += ('\n'
+            'export PKG_CONFIG_PATH="$PKG_CONFIG_PATH:/usr/local/lib64/pkgconfig"\n'
+            'export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/usr/local/lib:/usr/local/lib64:/usr/local/lib/x86_64-linux-gnu"\n'
+        )
+        bashrc_file.write(bashrc_content)
+    print('Restart shell and continue bootstrap')
+    sys.exit(0)
 
 sp.run(['sudo', 'apt', 'update'])
 apt_packages = [
@@ -62,6 +74,7 @@ with tempfile.TemporaryDirectory() as protobuf_workspace:
 print('bootstrap: test setup (run unrelicated test)')
 sp.run(['make', 'run-tests/replication/unreplicated-test'], cwd=pathlib.Path(), check=True)
 print('bootstrap: test setup (run unreplicated benchmark)')
+sp.run(['make', 'bench/replica', 'bench/client'], cwd=pathlib.Path(), check=True)
 replica_proc = sp.Popen([
     'bench/replica', 
     '-c', 'run/localhost.txt',
