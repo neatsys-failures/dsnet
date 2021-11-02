@@ -1,16 +1,9 @@
 import re
 import pathlib
-import sys
 import pyrem.host
 import pyrem.task
 
 print('baseline')
-for line in open(pathlib.Path() / 'Makefile'):
-    if '-O3' in line and line.strip().startswith('#'):
-        print('Makefile is not in performance mode')
-        sys.exit(1)
-pyrem.host.LocalHost().run(['make', 'bench/replica', 'bench/client']).start(wait=True)
-
 proj_dir = '/home/cowsay/dsnet/'
 local_dir = '/ws/dsnet/'
 for i in range(5):
@@ -21,13 +14,13 @@ for i in range(5):
 replica_cmd = [
     proj_dir + 'bench/replica',
     '-c', proj_dir + 'run/nsl.txt',
-    '-m', 'signedunrep',
+    '-m', 'unreplicated',
     '-i', '0',
 ]
 client_cmd = [
     proj_dir  + 'bench/client',
     '-c', proj_dir + 'run/nsl.txt',
-    '-m', 'signedunrep',
+    '-m', 'unreplicated',
     '-h', '11.0.0.101',
     # '-u', '30',
 ]
