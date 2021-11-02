@@ -52,23 +52,23 @@ static vector<string> keys;
 static vector<string> values;
 
 static void
-YCSBNextTxn(KVClient &client, KVStoreCB cb)
+YCSBNextTxn(KVClient *client, KVStoreCB cb)
 {
     int ttype = rand() % 100;
 
     if (ttype < readportion) {
-        string key = keys[rand_key()];
-        client.InvokeGetTxn(key, cb);
+        string key = keys.at(rand_key());
+        client->InvokeGetTxn(key, cb);
     } else if (ttype < readportion + updateportion) {
-        string key = keys[rand_key()];
-        string value = values[rand_value()];
-        client.InvokePutTxn(key, value, cb);
+        string key = keys.at(rand_key());
+        string value = values.at(rand_value());
+        client->InvokePutTxn(key, value, cb);
     } else {
-        string key1 = keys[rand_key()];
-        string key2 = keys[rand_key()];
-        string value1 = values[rand_value()];
-        string value2 = values[rand_value()];
-        client.InvokeRMWTxn(key1, key2, value1, value2, indep, cb);
+        string key1 = keys.at(rand_key());
+        string key2 = keys.at(rand_key());
+        string value1 = values.at(rand_value());
+        string value2 = values.at(rand_value());
+        client->InvokeRMWTxn(key1, key2, value1, value2, indep, cb);
     }
 }
 
@@ -399,7 +399,7 @@ main(int argc, char **argv)
             proto_clients.push_back(pc);
             KVClient *kc = new KVClient(pc, nShards);
             kv_clients.push_back(kc);
-            BenchClient *bc = new BenchClient(*kc, *transport,
+            BenchClient *bc = new BenchClient(kc,
                     YCSBNextTxn, duration, interval);
             transport->Timer(0, [=]() { bc->Start(); }, c);
             bench_clients.push_back(bc);

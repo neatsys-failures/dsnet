@@ -49,7 +49,7 @@ static int nKeys = 100;
 
 
 static void
-KVNextTxn(KVClient &client, KVStoreCB cb)
+KVNextTxn(KVClient *client, KVStoreCB cb)
 {
     vector<KVOp> ops;
 
@@ -73,7 +73,7 @@ KVNextTxn(KVClient &client, KVStoreCB cb)
         }
     }
 
-    client.InvokeKVTxn(ops, indep, cb);
+    client->InvokeKVTxn(ops, indep, cb);
 }
 
 int
@@ -306,7 +306,7 @@ main(int argc, char **argv)
         Panic("Unknown protocol mode");
     }
     kc = new KVClient(pc, nShards);
-    bc = new BenchClient(*kc, *transport, KVNextTxn, duration, interval);
+    bc = new BenchClient(kc, KVNextTxn, duration, interval);
     transport->Timer(0, [=]() { bc->Start(); });
 
     Timeout check_finish(transport, 100, [&]() {

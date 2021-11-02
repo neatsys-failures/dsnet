@@ -332,12 +332,16 @@ DPDKTransport::RegisterInternal(TransportReceiver *receiver,
 {
     ASSERT(addr != nullptr);
     DPDKTransportAddress *da = new DPDKTransportAddress(LookupAddressInternal(*addr));
-    if (core_id >= 0) {
-        // We use first byte of udp port to steer packet
-        uint16_t udp_port = (rte_be_to_cpu_16(da->udp_addr_) & 0xFF) | (core_id << 8);
-        da->udp_addr_ = rte_cpu_to_be_16(udp_port);
-    }
+    core_id = core_id < 0 ? 0 : core_id;
+
+    // We use first byte of udp port to steer packet
+    uint16_t udp_port = (rte_be_to_cpu_16(da->udp_addr_) & 0xFF) | (core_id << 8);
+    da->udp_addr_ = rte_cpu_to_be_16(udp_port);
     receiver->SetAddress(da);
+
+    if (receivers_.count(da->udp_addr_) > 0) {
+        Panic("Address already registered before");
+    }
     receivers_[da->udp_addr_] = receiver;
 }
 

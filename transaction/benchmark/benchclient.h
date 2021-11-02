@@ -11,14 +11,13 @@ namespace dsnet {
 namespace transaction {
 namespace benchmark {
 
-typedef std::function<void (dsnet::transaction::kvstore::KVClient &client,
+typedef std::function<void (dsnet::transaction::kvstore::KVClient *client,
         dsnet::transaction::kvstore::KVStoreCB cb)> NextTxnFn;
 
 class BenchClient
 {
 public:
-    BenchClient(dsnet::transaction::kvstore::KVClient &client,
-            dsnet::Transport &transport,
+    BenchClient(dsnet::transaction::kvstore::KVClient *client,
             NextTxnFn next_txn_fn, int duration, int interval);
     void Start();
 
@@ -30,8 +29,7 @@ private:
     void InvokeNextTxn();
     void OnTxnComplete(const std::map<std::string, std::string> &results, bool commit);
 
-    dsnet::transaction::kvstore::KVClient &client_;
-    dsnet::Transport &transport_;
+    dsnet::transaction::kvstore::KVClient *client_;
     NextTxnFn next_txn_fn_;
     int duration_, interval_;
     struct timeval start_time_;

@@ -116,7 +116,6 @@ SpannerClient::HandleReply(const TransportAddress &remote,
         return;
     }
 
-
     if (msg.clientreqid() != this->pendingRequest->client_req_id) {
         Debug("Received reply for a different request");
         return;

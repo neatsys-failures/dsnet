@@ -11,10 +11,10 @@ namespace benchmark {
 
 DEFINE_LATENCY(txn);
 
-BenchClient::BenchClient(KVClient &client, Transport &transport,
+BenchClient::BenchClient(KVClient *client,
         NextTxnFn next_txn_fn, int duration, int interval)
     : done(false), commit_txns(0), total_txns(0),
-    client_(client), transport_(transport), next_txn_fn_(next_txn_fn),
+    client_(client), next_txn_fn_(next_txn_fn),
     duration_(duration), interval_(interval)
 {
     _Latency_Init(&txn_latency_, "txn");
