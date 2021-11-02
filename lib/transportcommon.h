@@ -127,7 +127,7 @@ public:
 
     virtual bool
     SendMessageToAll(TransportReceiver *src,
-                     const Message &m)
+                     const Message &m) override
     {
         ASSERT(this->replicaGroups.find(src) != this->replicaGroups.end());
         int groupIdx = this->replicaGroups[src] == -1 ? 0 : this->replicaGroups[src];
@@ -137,7 +137,7 @@ public:
 
     virtual bool
     SendMessageToAllGroups(TransportReceiver *src,
-                           const Message &m)
+                           const Message &m) override
     {
         const dsnet::Configuration *cfg = configurations[src];
         ASSERT(cfg != NULL);

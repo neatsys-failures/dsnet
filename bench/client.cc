@@ -40,6 +40,7 @@
 #include "replication/fastpaxos/client.h"
 #include "replication/unreplicated/client.h"
 #include "replication/nopaxos/client.h"
+#include "replication/signedunrep/client.h"
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -48,9 +49,15 @@
 static void
 Usage(const char *progName)
 {
-    fprintf(stderr, "usage: %s [-n requests] [-t threads] [-w warmup-secs] [-s stats-file] [-d delay-ms] [-u duration-sec] [-p udp|dpdk] [-v device] [-x device-port] [-z transport-cmdline] -c conf-file -h host-address -m unreplicated|vr|fastpaxos|nopaxos\n",
-            progName);
-        exit(1);
+    fprintf(
+        stderr, 
+        "usage: %s "
+        "[-n requests] [-t threads] [-w warmup-secs] [-s stats-file] [-d delay-ms] "
+        "[-u duration-sec] [-p udp|dpdk] [-v device] [-x device-port] [-z transport-cmdline] "
+        "-c conf-file -h host-address -m unreplicated|signedunrep|vr|fastpaxos|nopaxos\n",
+        progName
+    );
+    exit(1);
 }
 
 void
@@ -73,6 +80,7 @@ int main(int argc, char **argv)
     {
         PROTO_UNKNOWN,
         PROTO_UNREPLICATED,
+        PROTO_SIGNEDUNREP,
         PROTO_VR,
         PROTO_FASTPAXOS,
         PROTO_SPEC,
@@ -136,6 +144,8 @@ int main(int argc, char **argv)
         case 'm':
             if (strcasecmp(optarg, "unreplicated") == 0) {
                 proto = PROTO_UNREPLICATED;
+            } else if (strcasecmp(optarg, "signedunrep") == 0) {
+                proto = PROTO_SIGNEDUNREP;
             } else if (strcasecmp(optarg, "vr") == 0) {
                 proto = PROTO_VR;
             } else if (strcasecmp(optarg, "fastpaxos") == 0) {
@@ -252,10 +262,11 @@ int main(int argc, char **argv)
         dsnet::Client *client;
         switch (proto) {
         case PROTO_UNREPLICATED:
-            client =
-                new dsnet::unreplicated::UnreplicatedClient(config,
-                                                            addr,
-                                                            transport);
+            client = new dsnet::unreplicated::UnreplicatedClient(config, addr, transport);
+            break;
+
+        case PROTO_SIGNEDUNREP:
+            client = new dsnet::signedunrep::SignedUnrepClient(config, addr, transport);
             break;
 
         case PROTO_VR:
@@ -263,15 +274,11 @@ int main(int argc, char **argv)
             break;
 
         case PROTO_FASTPAXOS:
-            client = new dsnet::fastpaxos::FastPaxosClient(config,
-                                                           addr,
-                                                           transport);
+            client = new dsnet::fastpaxos::FastPaxosClient(config, addr, transport);
             break;
 
         case PROTO_NOPAXOS:
-            client = new dsnet::nopaxos::NOPaxosClient(config,
-                                                       addr,
-                                                       transport);
+            client = new dsnet::nopaxos::NOPaxosClient(config, addr, transport);
             break;
 
         default:

@@ -35,6 +35,7 @@
 #include "replication/fastpaxos/replica.h"
 #include "replication/unreplicated/replica.h"
 #include "replication/nopaxos/replica.h"
+#include "replication/signedunrep/replica.h"
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -48,9 +49,15 @@
 static void
 Usage(const char *progName)
 {
-    fprintf(stderr, "usage: %s -c conf-file [-R] -i replica-index -m unreplicated|vr|fastpaxos|nopaxos [-b batch-size] [-d packet-drop-rate] [-r packet-reorder-rate]\n",
-            progName);
-        exit(1);
+    fprintf(
+        stderr, 
+        "usage: %s "
+        "-c conf-file [-R] -i replica-index "
+        "-m unreplicated|signedunrep|vr|fastpaxos|nopaxos "
+        "[-b batch-size] [-d packet-drop-rate] [-r packet-reorder-rate]\n",
+        progName
+    );
+    exit(1);
 }
 
 
@@ -70,6 +77,7 @@ main(int argc, char **argv)
     {
         PROTO_UNKNOWN,
         PROTO_UNREPLICATED,
+        PROTO_SIGNEDUNREP,
         PROTO_VR,
         PROTO_FASTPAXOS,
         PROTO_SPEC,
@@ -127,6 +135,8 @@ main(int argc, char **argv)
         case 'm':
             if (strcasecmp(optarg, "unreplicated") == 0) {
                 proto = PROTO_UNREPLICATED;
+            } else if (strcasecmp(optarg, "signedunrep") == 0) {
+                proto = PROTO_SIGNEDUNREP;
             } else if (strcasecmp(optarg, "vr") == 0) {
                 proto = PROTO_VR;
             } else if (strcasecmp(optarg, "fastpaxos") == 0) {
@@ -199,35 +209,29 @@ main(int argc, char **argv)
     dsnet::Replica *replica;
     switch (proto) {
     case PROTO_UNREPLICATED:
-        replica =
-            new dsnet::unreplicated::UnreplicatedReplica(config,
-                                                             index,
-                                                             !recover,
-                                                             &transport,
-                                                             nullApp);
+        replica = new dsnet::unreplicated::UnreplicatedReplica(
+            config, index, !recover, &transport, nullApp);
+        break;
+
+    case PROTO_SIGNEDUNREP:
+        replica = new dsnet::signedunrep::SignedUnrepReplica(
+            config, index, !recover, &transport, nullApp);
         break;
 
     case PROTO_VR:
-        replica = new dsnet::vr::VRReplica(config, index,
-                                               !recover,
-                                               &transport,
-                                               batchSize,
-                                               nullApp);
+        replica = new dsnet::vr::VRReplica(
+            config, index, !recover, &transport, batchSize, nullApp);
         break;
 
     case PROTO_FASTPAXOS:
-        replica = new dsnet::fastpaxos::FastPaxosReplica(config, index,
-							     !recover,
-                                                             &transport,
-                                                             nullApp);
+        replica = new dsnet::fastpaxos::FastPaxosReplica(
+            config, index, !recover, &transport, nullApp);
         break;
 
     case PROTO_NOPAXOS:
-        replica = new dsnet::nopaxos::NOPaxosReplica(config, index,
-                                                         !recover,
-                                                         &transport,
-                                                         nullApp);
-	break;
+        replica = new dsnet::nopaxos::NOPaxosReplica(
+            config, index, !recover, &transport, nullApp);
+        break;
 
     default:
         NOT_REACHABLE();

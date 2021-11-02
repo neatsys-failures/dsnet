@@ -3,6 +3,9 @@
 
 namespace dsnet {
 
+// Message with trusted content made by node with certain identifier.
+// Each identifier is associated with a secret key, which should be configured upon
+// system start up (WIP).
 class SignedMessage : public Message {
 public:
     Message *Clone() const override;
