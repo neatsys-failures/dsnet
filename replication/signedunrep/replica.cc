@@ -2,16 +2,18 @@
 #include "common/pbmessage.h"
 #include "common/signedmessage.h"
 #include "replication/signedunrep/replica.h"
-
 #include "lib/message.h"
 #include "lib/assert.h"
 #include "lib/transport.h"
+#include <cstring>
 
 namespace dsnet {
 namespace signedunrep {
 
 using namespace proto;
 using std::string;
+using std::memcpy;
+using std::unique_ptr;
 
 void SignedUnrepReplica::HandleRequest(
     const TransportAddress &remote,
@@ -63,34 +65,57 @@ void SignedUnrepReplica::HandleUnloggedRequest(
 SignedUnrepReplica::SignedUnrepReplica(
     Configuration config, string identifier, Transport *transport, AppReplica *app): 
     Replica(config, 0, 0, true, transport, app),
-    log(false), identifier(identifier)
+    log(false), identifier(identifier), prologue(8)
 {
     this->status = STATUS_NORMAL;
     this->last_op = 0;
+
+    poll_timeout = new Timeout(transport, 1, [this]() {
+        PollVerifiedMessage();
+    });
+    poll_timeout->Start();
+}
+
+SignedUnrepReplica::~SignedUnrepReplica() {
+    delete poll_timeout;
 }
 
 void SignedUnrepReplica::ReceiveMessage(
     const TransportAddress &remote, void *buf, size_t size)
 {
-    static ToReplicaMessage replica_msg;
-    static PBMessage m(replica_msg);
-    static SignedMessage signed_m(m, "Steve");  // TODO get remote id from configure
+    prologue.Enqueue(
+        unique_ptr<AbstractPrologueTask>(new PrologueTask<ToReplicaMessage>(buf, size, remote)),
+        [this](AbstractPrologueTask &task) {
+            ToReplicaMessage *message = new ToReplicaMessage;
+            PBMessage m(*message);
+            SignedMessage signed_m(m, "Steve");  // TODO get remote id from configure
+            (void) this->configuration;
+            task.ParseWithAdapter(signed_m);
+            if (!signed_m.IsVerified()) {
+                Warning("Deny ill-formed message");
+                delete message;
+                return;
+            }
+            task.SetMessage(message);
+        }
+    );
+    PollVerifiedMessage();
+}
 
-    signed_m.Parse(buf, size);
-    if (!signed_m.IsVerified()) {
-        Warning("Deny ill-formed message");
-        return;
-    }
-
-    switch (replica_msg.msg_case()) {
-        case ToReplicaMessage::MsgCase::kRequest:
-            HandleRequest(remote, replica_msg.request());
-            break;
-        case ToReplicaMessage::MsgCase::kUnloggedRequest:
-            HandleUnloggedRequest(remote, replica_msg.unlogged_request());
-            break;
-        default:
-            Panic("Received unexpected message type: %u", replica_msg.msg_case());
+void SignedUnrepReplica::PollVerifiedMessage() {
+    while (unique_ptr<AbstractPrologueTask> verified = prologue.Dequeue()) {
+        const TransportAddress &remote = verified->Remote();
+        ToReplicaMessage replica_msg = verified->Message<ToReplicaMessage>();
+        switch (replica_msg.msg_case()) {
+            case ToReplicaMessage::MsgCase::kRequest:
+                HandleRequest(remote, replica_msg.request());
+                break;
+            case ToReplicaMessage::MsgCase::kUnloggedRequest:
+                HandleUnloggedRequest(remote, replica_msg.unlogged_request());
+                break;
+            default:
+                Panic("Received unexpected message type: %u", replica_msg.msg_case());
+        }
     }
 }
 

@@ -10,7 +10,7 @@ LIB-request := $(o)request.o
 
 LIB-pbmessage := $(o)pbmessage.o
 
-LIB-taskqueue := $(o)taskqueue.o
+LIB-taskqueue := $(o)taskqueue.o $(LIB-message)
 
 LIB-signedmessage := $(o)signedmessage.o $(LIB-message)
 

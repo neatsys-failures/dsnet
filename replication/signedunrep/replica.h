@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/replica.h"
+#include "common/taskqueue.h"
 #include "replication/signedunrep/signedunrep-proto.pb.h"
 
 #include "common/log.h"
@@ -14,10 +15,14 @@ public:
     SignedUnrepReplica(
         Configuration config, std::string identifier,
         Transport *transport, AppReplica *app);
+    ~SignedUnrepReplica();
     void ReceiveMessage(
         const TransportAddress &remote, void *buf, size_t size) override;
 
 private:
+    Timeout *poll_timeout;
+
+    void PollVerifiedMessage();
     void HandleRequest(
         const TransportAddress &remote, const proto::RequestMessage &msg);
     void HandleUnloggedRequest(
@@ -35,6 +40,7 @@ private:
     std::map<uint64_t, ClientTableEntry> clientTable;
 
     const std::string identifier;
+    PrologueQueue prologue;
 };
 
 } 
