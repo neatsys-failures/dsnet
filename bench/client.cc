@@ -266,7 +266,7 @@ int main(int argc, char **argv)
             break;
 
         case PROTO_SIGNEDUNREP:
-            client = new dsnet::signedunrep::SignedUnrepClient(config, addr, transport);
+            client = new dsnet::signedunrep::SignedUnrepClient(config, addr, "Steve", transport);
             break;
 
         case PROTO_VR:

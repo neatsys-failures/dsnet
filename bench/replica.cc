@@ -215,7 +215,7 @@ main(int argc, char **argv)
 
     case PROTO_SIGNEDUNREP:
         replica = new dsnet::signedunrep::SignedUnrepReplica(
-            config, index, !recover, &transport, nullApp);
+            config, "Steve", &transport, nullApp);
         break;
 
     case PROTO_VR:
