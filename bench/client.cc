@@ -225,7 +225,7 @@ int main(int argc, char **argv) {
       transport = new dsnet::UDPTransport(0, 0);
       break;
     case TRANSPORT_DPDK:
-      transport = new dsnet::DPDKTransport(dev_port, 0, 1, transport_cmdline);
+      transport = new dsnet::DPDKTransport(dev_port, 0, 1, 0, transport_cmdline);
       break;
   }
 

@@ -49,8 +49,7 @@ public:
     UnreplicatedClient(const Configuration &config,
                        const ReplicaAddress &addr,
                        Transport *transport,
-                       uint64_t clientid = 0,
-                       int core_id = -1);
+                       uint64_t clientid = 0);
     ~UnreplicatedClient();
 
     void Invoke(const string &request,

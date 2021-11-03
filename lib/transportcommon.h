@@ -61,23 +61,22 @@ public:
     virtual void
     RegisterReplica(TransportReceiver *receiver,
                     const dsnet::Configuration &config,
-                    int groupIdx, int replicaIdx, int core_id) override
+                    int groupIdx, int replicaIdx) override
     {
         ASSERT(groupIdx < config.g);
         ASSERT(replicaIdx < config.n);
         RegisterConfiguration(receiver, config, groupIdx, replicaIdx);
         RegisterInternal(receiver, &config.replica(groupIdx, replicaIdx),
-                groupIdx, replicaIdx, core_id);
+                groupIdx, replicaIdx);
     }
 
     virtual void
     RegisterAddress(TransportReceiver *receiver,
                     const dsnet::Configuration &config,
-                    const dsnet::ReplicaAddress *addr,
-                    int core_id) override
+                    const dsnet::ReplicaAddress *addr) override
     {
         RegisterConfiguration(receiver, config, -1, -1);
-        RegisterInternal(receiver, addr, -1, -1, core_id);
+        RegisterInternal(receiver, addr, -1, -1);
     }
 
     virtual void
@@ -262,7 +261,7 @@ public:
 protected:
     virtual void RegisterInternal(TransportReceiver *receiver,
                                   const dsnet::ReplicaAddress *addr,
-                                  int groupIdx, int replicaIdx, int core_id) = 0;
+                                  int groupIdx, int replicaIdx) = 0;
     virtual bool SendMessageInternal(TransportReceiver *src,
                                      const ADDR &dst,
                                      const Message &m) = 0;

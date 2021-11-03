@@ -49,8 +49,7 @@ public:
     GranolaClient(const Configuration &config,
                   const ReplicaAddress &addr,
                   Transport *transport,
-                  uint64_t clientid = 0,
-                  int core_id = -1);
+                  uint64_t clientid = 0);
     ~GranolaClient();
 
     void Invoke(const string &request,

@@ -82,6 +82,7 @@ main(int argc, char **argv)
     dsnet::Transport *transport;
     string host, dev, transport_cmdline, stats_file;
     int dev_port = 0;
+    int core_id = 0;
     int n_transport_cores = 1;
 
     int nShards = 1;
@@ -94,7 +95,7 @@ main(int argc, char **argv)
     enum { TRANSPORT_UDP, TRANSPORT_DPDK } transport_type = TRANSPORT_UDP;
 
     int opt;
-    while ((opt = getopt(argc, argv, "c:d:e:f:gh:i:k:m:N:p:r:s:t:T:u:v:w:x:z:Z:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:d:e:f:gh:i:j:J:k:m:N:p:r:s:t:u:v:w:x:z:Z:")) != -1) {
         switch (opt) {
         case 'c': // Configuration path
         {
@@ -275,7 +276,7 @@ main(int argc, char **argv)
             break;
         }
 
-        case 't': // number of benchmark threads (per transport core)
+        case 't': // number of benchmark threads
         {
             char *strtolPtr;
             n_threads = strtod(optarg, &strtolPtr);
@@ -287,14 +288,26 @@ main(int argc, char **argv)
             break;
         }
 
-        case 'T': // number of transport cores
+        case 'j': // transport core id (for DPDK)
+        {
+            char *strtolPtr;
+            core_id = strtod(optarg, &strtolPtr);
+            if ((*optarg == '\0') || (*strtolPtr != '\0') || core_id < 0)
+            {
+                fprintf(stderr,
+                        "option -j requires a numeric arg >= 0\n");
+            }
+            break;
+        }
+
+        case 'J': // number of transport cores (for DPDK)
         {
             char *strtolPtr;
             n_transport_cores = strtod(optarg, &strtolPtr);
             if ((*optarg == '\0') || (*strtolPtr != '\0') || n_transport_cores < 1)
             {
                 fprintf(stderr,
-                        "option -T requires a numeric arg >= 1\n");
+                        "option -J requires a numeric arg >= 1\n");
             }
             break;
         }
@@ -341,7 +354,7 @@ main(int argc, char **argv)
             break;
         case TRANSPORT_DPDK:
             transport = new dsnet::DPDKTransport(dev_port, 0,
-                    n_transport_cores, transport_cmdline);
+                    n_transport_cores, core_id, transport_cmdline);
             break;
     }
 
@@ -373,37 +386,35 @@ main(int argc, char **argv)
     std::vector<KVClient *> kv_clients;
     std::vector<Client *> proto_clients;
     std::vector<BenchClient *> bench_clients;
-    for (int c = 0; c < n_transport_cores; c++) {
-        for (int i = 0; i < n_threads; i++) {
-            Client *pc;
-            switch (mode) {
-                case PROTO_ERIS:
-                    pc = new eris::ErisClient(config, addr, transport, 0, c);
-                    break;
-                case PROTO_GRANOLA:
-                    pc = new granola::GranolaClient(config, addr, transport, 0, c);
-                    break;
-                case PROTO_UNREPLICATED:
-                    pc =
-                        new transaction::unreplicated::UnreplicatedClient(config,
-                                addr, transport, 0, c);
-                    break;
-                case PROTO_SPANNER:
-                    pc = new spanner::SpannerClient(config, addr, transport, 0, c);
-                    break;
-                case PROTO_TAPIR:
-                    Panic("Currently not supporting TAPIR");
-                default:
-                    Panic("Unknown protocol mode");
-            }
-            proto_clients.push_back(pc);
-            KVClient *kc = new KVClient(pc, nShards);
-            kv_clients.push_back(kc);
-            BenchClient *bc = new BenchClient(kc,
-                    YCSBNextTxn, duration, interval);
-            transport->Timer(0, [=]() { bc->Start(); }, c);
-            bench_clients.push_back(bc);
+    for (int i = 0; i < n_threads; i++) {
+        Client *pc;
+        switch (mode) {
+            case PROTO_ERIS:
+                pc = new eris::ErisClient(config, addr, transport);
+                break;
+            case PROTO_GRANOLA:
+                pc = new granola::GranolaClient(config, addr, transport);
+                break;
+            case PROTO_UNREPLICATED:
+                pc =
+                    new transaction::unreplicated::UnreplicatedClient(config,
+                            addr, transport);
+                break;
+            case PROTO_SPANNER:
+                pc = new spanner::SpannerClient(config, addr, transport);
+                break;
+            case PROTO_TAPIR:
+                Panic("Currently not supporting TAPIR");
+            default:
+                Panic("Unknown protocol mode");
         }
+        proto_clients.push_back(pc);
+        KVClient *kc = new KVClient(pc, nShards);
+        kv_clients.push_back(kc);
+        BenchClient *bc = new BenchClient(kc,
+                YCSBNextTxn, duration, interval);
+        transport->Timer(0, [=]() { bc->Start(); });
+        bench_clients.push_back(bc);
     }
 
     Timeout check_finish(transport, 100, [&]() {

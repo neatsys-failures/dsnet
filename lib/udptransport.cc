@@ -231,7 +231,7 @@ UDPTransport::~UDPTransport()
 void
 UDPTransport::RegisterInternal(TransportReceiver *receiver,
                                const dsnet::ReplicaAddress *addr,
-                               int groupIdx, int replicaIdx, int core_id)
+                               int groupIdx, int replicaIdx)
 {
     struct sockaddr_in sin;
 
@@ -596,7 +596,7 @@ deliver:
 }
 
 int
-UDPTransport::Timer(uint64_t ms, timer_callback_t cb, int core_id)
+UDPTransport::Timer(uint64_t ms, timer_callback_t cb)
 {
     std::lock_guard<std::mutex> lck(this->timersLock);
     UDPTransportTimerInfo *info = new UDPTransportTimerInfo();

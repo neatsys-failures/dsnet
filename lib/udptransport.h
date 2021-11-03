@@ -74,12 +74,12 @@ public:
     virtual ~UDPTransport();
     virtual void RegisterInternal(TransportReceiver *receiver,
                                   const dsnet::ReplicaAddress *addr,
-                                  int groupIdx, int replicaIdx, int core_id) override;
+                                  int groupIdx, int replicaIdx) override;
     virtual void ListenOnMulticast(TransportReceiver *receiver,
                                    const dsnet::Configuration &config) override;
     void Run() override;
     void Stop() override;
-    int Timer(uint64_t ms, timer_callback_t cb, int core_id = -1) override;
+    int Timer(uint64_t ms, timer_callback_t cb) override;
     bool CancelTimer(int id) override;
     void CancelAllTimers() override;
     virtual ReplicaAddress
