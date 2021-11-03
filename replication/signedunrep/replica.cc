@@ -1,5 +1,6 @@
 #include "common/replica.h"
 #include "common/pbmessage.h"
+#include "common/signedmessage.h"
 #include "replication/signedunrep/replica.h"
 
 #include "lib/message.h"
@@ -26,7 +27,8 @@ void SignedUnrepReplica::HandleRequest(
             return;
         }
         if (msg.req().clientreqid() == entry.lastReqId) {
-            if (!(transport->SendMessage(this, remote, PBMessage(entry.reply)))) {
+            PBMessage pb_m(entry.reply);
+            if (!(transport->SendMessage(this, remote, SignedMessage(pb_m, identifier)))) {
                 Warning("Failed to resend reply to client");
             }
             return;
@@ -45,7 +47,8 @@ void SignedUnrepReplica::HandleRequest(
     reply->set_opnum(last_op);
     *reply->mutable_req() = msg.req();
 
-    if (!(transport->SendMessage(this, remote, PBMessage(m))))
+    PBMessage pb_m(m);
+    if (!(transport->SendMessage(this, remote, SignedMessage(pb_m, identifier))))
         Warning("Failed to send reply message");
 
     UpdateClientTable(msg.req(), m);
@@ -54,19 +57,13 @@ void SignedUnrepReplica::HandleRequest(
 void SignedUnrepReplica::HandleUnloggedRequest(
     const TransportAddress &remote, const UnloggedRequestMessage &msg)
 {
-    ToClientMessage m;
-    UnloggedReplyMessage *reply = m.mutable_unlogged_reply();
-
-    ExecuteUnlogged(msg.req(), *reply);
-
-    if (!(transport->SendMessage(this, remote, PBMessage(m))))
-        Warning("Failed to send reply message");
+    NOT_REACHABLE();
 }
 
 SignedUnrepReplica::SignedUnrepReplica(
     Configuration config, string identifier, Transport *transport, AppReplica *app): 
     Replica(config, 0, 0, true, transport, app),
-    log(false)
+    log(false), identifier(identifier)
 {
     this->status = STATUS_NORMAL;
     this->last_op = 0;
@@ -77,8 +74,13 @@ void SignedUnrepReplica::ReceiveMessage(
 {
     static ToReplicaMessage replica_msg;
     static PBMessage m(replica_msg);
+    static SignedMessage signed_m(m, "Steve");  // TODO get remote id from configure
 
-    m.Parse(buf, size);
+    signed_m.Parse(buf, size);
+    if (!signed_m.IsVerified()) {
+        Warning("Deny ill-formed message");
+        return;
+    }
 
     switch (replica_msg.msg_case()) {
         case ToReplicaMessage::MsgCase::kRequest:

@@ -44,6 +44,8 @@ protected:
         const TransportAddress &remote, const proto::UnloggedReplyMessage &msg);
     void SendRequest();
     void ResendRequest();
+
+    const std::string identifier;
 };
 
 } 

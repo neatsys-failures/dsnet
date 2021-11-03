@@ -8,10 +8,10 @@ PROTOS += $(addprefix $(d), \
 
 OBJS-signedunrep-client := $(o)client.o $(o)signedunrep-proto.o \
                $(OBJS-client) $(LIB-message) \
-               $(LIB-configuration) $(LIB-pbmessage)
+               $(LIB-configuration) $(LIB-pbmessage) $(LIB-signedmessage)
 
 OBJS-signedunrep-replica := $(o)replica.o $(o)signedunrep-proto.o \
                $(OBJS-replica) $(LIB-message) \
-               $(LIB-configuration) $(LIB-pbmessage)
+               $(LIB-configuration) $(LIB-pbmessage) $(LIB-signedmessage)
 
 $(o)client.o $(o)replica.o: $(o)signedunrep-proto.o

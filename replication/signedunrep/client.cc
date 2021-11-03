@@ -1,6 +1,7 @@
 #include "common/client.h"
 #include "common/request.pb.h"
 #include "common/pbmessage.h"
+#include "common/signedmessage.h"
 #include "lib/message.h"
 #include "lib/assert.h"
 #include "lib/transport.h"
@@ -17,7 +18,7 @@ SignedUnrepClient::SignedUnrepClient(
     const Configuration &config, 
     const ReplicaAddress &addr, const string identifier,
     Transport *transport, uint64_t clientid)
-    : Client(config, addr, transport, clientid)
+    : Client(config, addr, transport, clientid), identifier(identifier)
 {
     pendingRequest = NULL;
     pendingUnloggedRequest = NULL;
@@ -45,7 +46,7 @@ SignedUnrepClient::Invoke(const string &request, continuation_t continuation)
         Panic("Client only supports one pending request");
     }
 
-    ++lastReqId;
+    lastReqId += 1;
     pendingRequest = new PendingRequest(request, lastReqId, continuation);
 
     SendRequest();
@@ -61,7 +62,8 @@ SignedUnrepClient::SendRequest()
     reqMsg->mutable_req()->set_clientreqid(lastReqId);
 
     // SignedUnrep: just send to replica 0
-    transport->SendMessageToReplica(this, 0, PBMessage(m));
+    PBMessage pb_m(m);
+    transport->SendMessageToReplica(this, 0, SignedMessage(pb_m, identifier));
 
     requestTimeout->Reset();
 }
@@ -88,8 +90,10 @@ SignedUnrepClient::ReceiveMessage(
 {
     static ToClientMessage client_msg;
     static PBMessage m(client_msg);
+    static SignedMessage signed_m(m, "Steve");  // TODO: get remote id from configure
 
-    m.Parse(buf, size);
+    signed_m.Parse(buf, size);
+    ASSERT(signed_m.IsVerified());
 
     switch (client_msg.msg_case()) {
         case ToClientMessage::MsgCase::kReply:
