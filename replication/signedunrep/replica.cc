@@ -1,10 +1,12 @@
-#include "common/replica.h"
-#include "common/pbmessage.h"
-#include "common/signedmessage.h"
 #include "replication/signedunrep/replica.h"
+
 #include "lib/message.h"
 #include "lib/assert.h"
 #include "lib/transport.h"
+#include "common/replica.h"
+#include "common/pbmessage.h"
+#include "common/signedadapter.h"
+
 #include <cstring>
 
 namespace dsnet {
@@ -14,13 +16,12 @@ using namespace proto;
 using std::string;
 using std::memcpy;
 using std::unique_ptr;
+using std::move;
 
 void SignedUnrepReplica::HandleRequest(
     const TransportAddress &remote,
     const proto::RequestMessage &msg) 
 {
-    ToClientMessage m;
-    ReplyMessage *reply = m.mutable_reply();
 
     auto kv = clientTable.find(msg.req().clientid());
     if (kv != clientTable.end()) {
@@ -30,7 +31,7 @@ void SignedUnrepReplica::HandleRequest(
         }
         if (msg.req().clientreqid() == entry.lastReqId) {
             PBMessage pb_m(entry.reply);
-            if (!(transport->SendMessage(this, remote, SignedMessage(pb_m, identifier)))) {
+            if (!(transport->SendMessage(this, remote, SignedAdapter(pb_m, identifier)))) {
                 Warning("Failed to resend reply to client");
             }
             return;
@@ -41,16 +42,16 @@ void SignedUnrepReplica::HandleRequest(
     viewstamp_t v(0, last_op);
     log.Append(new LogEntry(v, LOG_STATE_RECEIVED, msg.req()));
 
+    ToClientMessage m;
+    ReplyMessage *reply = m.mutable_reply();
     Execute(last_op, msg.req(), *reply);
-
     // The protocol defines these as required, even if they're not
     // meaningful.
     reply->set_view(0);
     reply->set_opnum(last_op);
     *reply->mutable_req() = msg.req();
-
     PBMessage pb_m(m);
-    if (!(transport->SendMessage(this, remote, SignedMessage(pb_m, identifier))))
+    if (!(transport->SendMessage(this, remote, SignedAdapter(pb_m, identifier))))
         Warning("Failed to send reply message");
 
     UpdateClientTable(msg.req(), m);
@@ -63,10 +64,10 @@ void SignedUnrepReplica::HandleUnloggedRequest(
 }
 
 SignedUnrepReplica::SignedUnrepReplica(
-    Configuration config, string identifier, int nb_prologue_worker,
+    Configuration config, string identifier, int nb_worker_thread,
     Transport *transport, AppReplica *app)
     : Replica(config, 0, 0, true, transport, app),
-    log(false), identifier(identifier), prologue(nb_prologue_worker)
+    log(false), identifier(identifier), prologue(nb_worker_thread)
 {
     this->status = STATUS_NORMAL;
     this->last_op = 0;
@@ -85,26 +86,25 @@ void SignedUnrepReplica::ReceiveMessage(
     const TransportAddress &remote, void *buf, size_t size)
 {
     prologue.Enqueue(
-        unique_ptr<AbstractPrologueTask>(new PrologueTask<ToReplicaMessage>(buf, size, remote)),
-        [this](AbstractPrologueTask &task) {
-            ToReplicaMessage *message = new ToReplicaMessage;
+        unique_ptr<PrologueTask>(PrologueTask::New<ToReplicaMessage>(buf, size, remote)),
+        [this](PrologueTask &task) {
+            auto message = unique_ptr<ToReplicaMessage>(new ToReplicaMessage);
             PBMessage m(*message);
-            SignedMessage signed_m(m, "Steve");  // TODO get remote id from configure
-            (void) this->configuration;
-            task.ParseWithAdapter(signed_m);
-            if (!signed_m.IsVerified()) {
+            (void) this->configuration;  // TODO get remote id from configure
+            SignedAdapter signed_adapter(m, "Steve");
+            task.ParseWithAdapter(signed_adapter);
+            if (!signed_adapter.IsVerified()) {
                 Warning("Deny ill-formed message");
-                delete message;
                 return;
             }
-            task.SetMessage(message);
+            task.SetMessage(move(message));
         }
     );
     PollVerifiedMessage();
 }
 
 void SignedUnrepReplica::PollVerifiedMessage() {
-    while (unique_ptr<AbstractPrologueTask> verified = prologue.Dequeue()) {
+    while (unique_ptr<PrologueTask> verified = prologue.Dequeue()) {
         const TransportAddress &remote = verified->Remote();
         ToReplicaMessage replica_msg = verified->Message<ToReplicaMessage>();
         switch (replica_msg.msg_case()) {

@@ -1,11 +1,11 @@
-#include "common/client.h"
-#include "common/request.pb.h"
-#include "common/pbmessage.h"
-#include "common/signedmessage.h"
+#include "replication/signedunrep/client.h"
+
 #include "lib/message.h"
 #include "lib/assert.h"
 #include "lib/transport.h"
-#include "replication/signedunrep/client.h"
+#include "common/client.h"
+#include "common/pbmessage.h"
+#include "common/signedadapter.h"
 #include "replication/signedunrep/signedunrep-proto.pb.h"
 
 namespace dsnet {
@@ -61,9 +61,8 @@ SignedUnrepClient::SendRequest()
     reqMsg->mutable_req()->set_clientid(clientid);
     reqMsg->mutable_req()->set_clientreqid(lastReqId);
 
-    // SignedUnrep: just send to replica 0
     PBMessage pb_m(m);
-    transport->SendMessageToReplica(this, 0, SignedMessage(pb_m, identifier));
+    transport->SendMessageToReplica(this, 0, SignedAdapter(pb_m, identifier));
 
     requestTimeout->Reset();
 }
@@ -90,10 +89,10 @@ SignedUnrepClient::ReceiveMessage(
 {
     static ToClientMessage client_msg;
     static PBMessage m(client_msg);
-    static SignedMessage signed_m(m, "Steve");  // TODO: get remote id from configure
+    static SignedAdapter signed_adapter(m, "Steve");  // TODO: get remote id from configure
 
-    signed_m.Parse(buf, size);
-    ASSERT(signed_m.IsVerified());
+    signed_adapter.Parse(buf, size);
+    ASSERT(signed_adapter.IsVerified());
 
     switch (client_msg.msg_case()) {
         case ToClientMessage::MsgCase::kReply:
