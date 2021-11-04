@@ -11,53 +11,28 @@
 
 namespace dsnet {
 
-template<typename M> class PrologueTask;
-class AbstractPrologueTask {
+template<typename M> class PrologueTaskSpec;  // specialization
+class PrologueTask {
 public:
     virtual bool HasMessage() const = 0;
     virtual const TransportAddress &Remote() const = 0;
     virtual void ParseWithAdapter(class Message &adapter) const = 0;
-    virtual ~AbstractPrologueTask() {
+    virtual ~PrologueTask() {
     }
-    template<typename M> void SetMessage(M *message) {
-        dynamic_cast<PrologueTask<M> &>(*this).message = message;
+    template<typename M> static PrologueTask *New(
+        void *buf, size_t len, const TransportAddress &remote_addr) 
+    {
+        return new PrologueTaskSpec<M>(buf, len, remote_addr);
+    }
+    // if prologue did not call SetMessage during preprocessing, the task will be
+    // quitely dropped by PrologueQueue without delivering it to Dequeue
+    template<typename M> void SetMessage(std::unique_ptr<M> message) {
+        dynamic_cast<PrologueTaskSpec<M> &>(*this).message = move(message);
     }
     template<typename M> M &Message() {
         ASSERT(HasMessage());
-        return *dynamic_cast<PrologueTask<M> &>(*this).message;
+        return *dynamic_cast<PrologueTaskSpec<M> &>(*this).message;
     }
-};
-
-template<typename M> class PrologueTask : public AbstractPrologueTask {
-    friend class AbstractPrologueTask;
-    bool HasMessage() const override {
-        return message != nullptr;
-    }
-public:
-    PrologueTask(void *buf, size_t len, const TransportAddress &remote_addr)
-        : buf(new unsigned char[len]), len(len), remote(remote_addr.clone()), message(nullptr)
-    {
-        std::memcpy(this->buf, buf, len);
-    }
-    ~PrologueTask() {
-        delete[] buf;
-        delete remote;
-        if (message != nullptr) {
-            delete message;
-        }
-    }
-
-    const TransportAddress &Remote() const override {
-        return *remote;
-    }
-    void ParseWithAdapter(class Message &adapter) const override {
-        adapter.Parse(buf, len);
-    }
-private:
-    unsigned char *buf;
-    size_t len;
-    const TransportAddress *remote;
-    M *message;
 };
 
 // General parallization for message-preprocessing.
@@ -74,17 +49,46 @@ public:
     //   done by replica sequencially.
     // * optionally decide whether the message is dropped. If callback drops the message,
     //   it returns nullptr instead of the message.
-    using Prologue = std::function<void (AbstractPrologueTask &)>;
+    using Prologue = std::function<void (PrologueTask &)>;
     PrologueQueue(int nb_thread);
-    void Enqueue(std::unique_ptr<AbstractPrologueTask> task, Prologue prologue);
-    std::unique_ptr<AbstractPrologueTask> Dequeue();
+    void Enqueue(std::unique_ptr<PrologueTask> task, Prologue prologue);
+    std::unique_ptr<PrologueTask> Dequeue();
 private:
     struct WorkingTask {
         std::future<void> handle;
-        AbstractPrologueTask *data;
+        PrologueTask *data;
     };
     std::queue<WorkingTask> tasks;
     ctpl::thread_pool pool;
+};
+
+// private part
+template<typename M> class PrologueTaskSpec : public PrologueTask {
+    friend class PrologueTask;
+private:
+    unsigned char *buf;
+    size_t len;
+    const TransportAddress *remote;
+    std::unique_ptr<M> message;
+
+    bool HasMessage() const override {
+        return message != nullptr;
+    }
+    PrologueTaskSpec(void *buf, size_t len, const TransportAddress &remote_addr)
+        : buf(new unsigned char[len]), len(len), remote(remote_addr.clone()), message(nullptr)
+    {
+        std::memcpy(this->buf, buf, len);
+    }
+    ~PrologueTaskSpec() {
+        delete[] buf;
+        delete remote;
+    }
+    const TransportAddress &Remote() const override {
+        return *remote;
+    }
+    void ParseWithAdapter(class Message &adapter) const override {
+        adapter.Parse(buf, len);
+    }
 };
 
 }
