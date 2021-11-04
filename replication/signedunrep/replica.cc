@@ -63,9 +63,10 @@ void SignedUnrepReplica::HandleUnloggedRequest(
 }
 
 SignedUnrepReplica::SignedUnrepReplica(
-    Configuration config, string identifier, Transport *transport, AppReplica *app): 
-    Replica(config, 0, 0, true, transport, app),
-    log(false), identifier(identifier), prologue(8)
+    Configuration config, string identifier, int nb_prologue_worker,
+    Transport *transport, AppReplica *app)
+    : Replica(config, 0, 0, true, transport, app),
+    log(false), identifier(identifier), prologue(nb_prologue_worker)
 {
     this->status = STATUS_NORMAL;
     this->last_op = 0;

@@ -13,7 +13,7 @@ class SignedUnrepReplica : public Replica
 {
 public:
     SignedUnrepReplica(
-        Configuration config, std::string identifier,
+        Configuration config, std::string identifier, int nb_prologue_worker,
         Transport *transport, AppReplica *app);
     ~SignedUnrepReplica();
     void ReceiveMessage(

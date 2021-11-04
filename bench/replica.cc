@@ -54,7 +54,8 @@ Usage(const char *progName)
         "usage: %s "
         "-c conf-file [-R] -i replica-index "
         "-m unreplicated|signedunrep|vr|fastpaxos|nopaxos "
-        "[-b batch-size] [-d packet-drop-rate] [-r packet-reorder-rate]\n",
+        "[-b batch-size] [-d packet-drop-rate] [-r packet-reorder-rate] "
+        "[-w number-worker-thread]\n",
         progName
     );
     exit(1);
@@ -70,6 +71,7 @@ main(int argc, char **argv)
     double reorderRate = 0.0;
     int batchSize = 1;
     bool recover = false;
+    int nb_worker_thread = 8;
 
     dsnet::AppReplica *nullApp = new dsnet::AppReplica();
 
@@ -86,7 +88,7 @@ main(int argc, char **argv)
 
     // Parse arguments
     int opt;
-    while ((opt = getopt(argc, argv, "b:c:d:i:m:r:R:tw:")) != -1) {
+    while ((opt = getopt(argc, argv, "b:c:d:i:m:r:R:w:")) != -1) {
         switch (opt) {
         case 'b':
         {
@@ -165,6 +167,15 @@ main(int argc, char **argv)
         case 'R':
             recover = true;
             break;
+        
+        case 'w': {
+            char *strtod_ptr;
+            nb_worker_thread = strtod(optarg, &strtod_ptr);
+            if (*optarg == '\0' || *strtod_ptr != '\0' || nb_worker_thread <= 0) {
+                Usage(argv[0]);
+            }
+            break;
+        }
 
         default:
             fprintf(stderr, "Unknown argument %s\n", argv[optind]);
@@ -215,7 +226,7 @@ main(int argc, char **argv)
 
     case PROTO_SIGNEDUNREP:
         replica = new dsnet::signedunrep::SignedUnrepReplica(
-            config, "Steve", &transport, nullApp);
+            config, "Steve", nb_worker_thread, &transport, nullApp);
         break;
 
     case PROTO_VR:
