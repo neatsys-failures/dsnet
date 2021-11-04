@@ -1,7 +1,7 @@
 d := $(dir $(lastword $(MAKEFILE_LIST)))
 
 SRCS += $(addprefix $(d), \
-	client.cc replica.cc log.cc pbmessage.cc taskqueue.cc signedmessage.cc)
+	client.cc replica.cc log.cc pbmessage.cc taskqueue.cc signedadapter.cc)
 
 PROTOS += $(addprefix $(d), \
 	  request.proto)
@@ -12,7 +12,7 @@ LIB-pbmessage := $(o)pbmessage.o
 
 LIB-taskqueue := $(o)taskqueue.o $(LIB-message)
 
-LIB-signedmessage := $(o)signedmessage.o $(LIB-message)
+LIB-signedadapter := $(o)signedadapter.o $(LIB-message)
 
 OBJS-client := $(o)client.o \
 		$(LIB-message) $(LIB-configuration) $(LIB-transport) \

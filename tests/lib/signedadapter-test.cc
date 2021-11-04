@@ -1,4 +1,4 @@
-#include "common/signedmessage.h"
+#include "common/signedadapter.h"
 #include <gtest/gtest.h>
 
 using namespace dsnet;
@@ -27,16 +27,16 @@ public:
     }
 };
 
-TEST(SignedMessage, Basic) {
+TEST(SignedAdapter, Basic) {
     StringMessage inner;
     inner.content = "Hello!";
-    SignedMessage message(inner, "Steve");
+    SignedAdapter message(inner, "Steve");
     size_t dump_size = message.SerializedSize();
     char *buf = new char[dump_size];
     message.Serialize(buf);
 
     StringMessage recv_inner;
-    SignedMessage recv_message(recv_inner, "Steve");
+    SignedAdapter recv_message(recv_inner, "Steve");
     recv_message.Parse(buf, dump_size);
     ASSERT_TRUE(recv_message.IsVerified());
     ASSERT_NE(recv_message.Digest(), "");

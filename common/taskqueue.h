@@ -39,7 +39,7 @@ public:
 // Compare to native worker thread pool:
 // * PrologueQueue is passive. It relies on external calling for both enqueue/dequeue.
 // * PrologueQueue is ordered. It will not release task that enqueue later first.
-// * PrologueQueue is specific for message-processing.
+// * PrologueQueue is specialized for message-processing.
 class PrologueQueue {
 public:
     // Prologue callback should:

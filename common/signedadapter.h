@@ -6,7 +6,7 @@ namespace dsnet {
 // Message with trusted content made by node with certain identifier.
 // Each identifier is associated with a secret key, which should be configured upon
 // system start up (WIP).
-class SignedMessage : public Message {
+class SignedAdapter : public Message {
 public:
     Message *Clone() const override;
     std::string Type() const override;
@@ -18,7 +18,7 @@ public:
     // two special identifier:
     // * "Steve" uses a default test key for signing/verifing. Used by benchmark clients/replicas.
     // * "Alex" to be decided
-    SignedMessage(Message &inner_message, std::string identifier);
+    SignedAdapter(Message &inner_message, std::string identifier);
     // undefined behavior: call IsVerified() before/without calling Parse()
     bool IsVerified() const {
         return is_verified;

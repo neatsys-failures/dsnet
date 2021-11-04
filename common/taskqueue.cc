@@ -34,6 +34,8 @@ auto PrologueQueue::Dequeue() -> unique_ptr<PrologueTask> {
         tasks.pop();
         if (task.data->HasMessage()) {
             return unique_ptr<PrologueTask>(task.data);
+        } else {
+            delete task.data;
         }
     }
     return nullptr;

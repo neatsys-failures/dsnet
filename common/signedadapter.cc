@@ -1,4 +1,4 @@
-#include "common/signedmessage.h"
+#include "common/signedadapter.h"
 #include "lib/assert.h"
 #include "lib/message.h"
 
@@ -22,7 +22,7 @@ static const unsigned char STEVE_SECKEY[] = {
 static const secp256k1_pubkey *STEVE_PUBKEY;
 static const secp256k1_context *PROTO_CTX_SIGN, *PROTO_CTX_VERIFY;
 
-SignedMessage::SignedMessage(Message &inner_message, const string identifier) 
+SignedAdapter::SignedAdapter(Message &inner_message, const string identifier) 
     : inner_message(inner_message), identifier(identifier) 
 {
     if (PROTO_CTX_SIGN != nullptr) {
@@ -37,23 +37,23 @@ SignedMessage::SignedMessage(Message &inner_message, const string identifier)
     secp256k1_context_destroy(ctx);
 }
 
-Message *SignedMessage::Clone() const {
-    SignedMessage *message = new SignedMessage(inner_message, identifier);
+Message *SignedAdapter::Clone() const {
+    SignedAdapter *message = new SignedAdapter(inner_message, identifier);
     message->is_verified = is_verified;
     message->digest = digest;
     return message;
 }
 
-string SignedMessage::Type() const {
+string SignedAdapter::Type() const {
     return inner_message.Type();
 }
 
-size_t SignedMessage::SerializedSize() const {
+size_t SignedAdapter::SerializedSize() const {
     // sign overhead: 64B signature + 16B identifier
     return inner_message.SerializedSize() + 80;
 }
 
-void SignedMessage::Parse(const void *buf, size_t size) {
+void SignedAdapter::Parse(const void *buf, size_t size) {
     const char *buf_id = (const char *) buf;
     const unsigned char *buf_sig = ((const unsigned char *) buf) + 16;
     const unsigned char *buf_inner = ((const unsigned char *) buf) + 80;
@@ -88,7 +88,7 @@ ctx_destroy:
     secp256k1_context_destroy(ctx);
 }
 
-void SignedMessage::Serialize(void *buf) const {
+void SignedAdapter::Serialize(void *buf) const {
     char *buf_id = (char *)buf;
     unsigned char *buf_sig = ((unsigned char *) buf) + 16;
     unsigned char *buf_inner = ((unsigned char *) buf) + 80;
