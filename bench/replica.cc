@@ -249,5 +249,6 @@ main(int argc, char **argv)
     }
 
     transport.Run();
+    printf("Transport exit\n");
     delete replica;
 }

@@ -718,7 +718,7 @@ UDPTransport::SignalCallback(evutil_socket_t fd, short what, void *arg)
     Notice("Terminating on SIGTERM/SIGINT");
     UDPTransport *transport = (UDPTransport *)arg;
     transport->Stop();
-    exit(1);
+    // exit(1);
 }
 
 } // namespace dsnet

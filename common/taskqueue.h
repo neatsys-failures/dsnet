@@ -51,6 +51,7 @@ public:
     //   it returns nullptr instead of the message.
     using Prologue = std::function<void (PrologueTask &)>;
     PrologueQueue(int nb_thread);
+    ~PrologueQueue();
     void Enqueue(std::unique_ptr<PrologueTask> task, Prologue prologue);
     std::unique_ptr<PrologueTask> Dequeue();
 private:
@@ -60,6 +61,7 @@ private:
     };
     std::queue<WorkingTask> tasks;
     ctpl::thread_pool pool;
+    int nb_thread;
 };
 
 // private part
