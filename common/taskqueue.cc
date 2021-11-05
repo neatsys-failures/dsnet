@@ -44,13 +44,15 @@ PrologueQueue::~PrologueQueue() {
 void PrologueQueue::Enqueue(unique_ptr<PrologueTask> task, Prologue prologue)
 {
     Latency_Start(&enqueue_latency);
-    WorkingTask working;
-    working.data = task.release();
-    working.handle = pool.push([] (int id, Prologue prologue, PrologueTask *task) {
+    auto working = unique_ptr<WorkingTask>(new WorkingTask);
+    working->data = move(task);
+    working->ready = false;
+    pool.push([] (int id, Prologue prologue, WorkingTask *working) {
         Latency_Start(&prologue_latency[id]);
-        prologue(*task);
+        prologue(*working->data);
+        working->ready = true;
         Latency_End(&prologue_latency[id]);
-    }, prologue, working.data);
+    }, prologue, working.get());
     tasks.push(move(working));
     Latency_End(&enqueue_latency);
 }
@@ -58,18 +60,17 @@ void PrologueQueue::Enqueue(unique_ptr<PrologueTask> task, Prologue prologue)
 auto PrologueQueue::Dequeue() -> unique_ptr<PrologueTask> {
     Latency_Start(&dequeue_latency);
     while (tasks.size() != 0) {
-        auto status = tasks.front().handle.wait_for(0s);
-        if (status != future_status::ready) {
+        if (!tasks.front()->ready) {
             Latency_EndType(&dequeue_latency, 'w');
             return nullptr;
         }
-        WorkingTask task = move(tasks.front());
+        auto task = move(tasks.front()->data);
         tasks.pop();
-        if (task.data->HasMessage()) {
+        if (task->HasMessage()) {
             Latency_End(&dequeue_latency);
-            return unique_ptr<PrologueTask>(task.data);
+            return task;
         } else {
-            delete task.data;
+            //
         }
     }
     Latency_EndType(&dequeue_latency, 'e');

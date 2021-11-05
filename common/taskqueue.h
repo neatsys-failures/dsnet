@@ -8,6 +8,7 @@
 #include <future>
 #include <memory>
 #include <cstring>
+#include <atomic>
 
 namespace dsnet {
 
@@ -57,10 +58,10 @@ public:
 private:
 #ifndef DSNET_SIMPLE_TASKQUEUE
     struct WorkingTask {
-        std::future<void> handle;
-        PrologueTask *data;
+        std::atomic<bool> ready;
+        std::unique_ptr<PrologueTask> data;
     };
-    std::queue<WorkingTask> tasks;
+    std::queue<std::unique_ptr<WorkingTask>> tasks;
     ctpl::thread_pool pool;
     int nb_thread;
 #else
