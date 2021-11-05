@@ -55,6 +55,7 @@ public:
     void Enqueue(std::unique_ptr<PrologueTask> task, Prologue prologue);
     std::unique_ptr<PrologueTask> Dequeue();
 private:
+#ifndef DSNET_SIMPLE_TASKQUEUE
     struct WorkingTask {
         std::future<void> handle;
         PrologueTask *data;
@@ -62,6 +63,9 @@ private:
     std::queue<WorkingTask> tasks;
     ctpl::thread_pool pool;
     int nb_thread;
+#else
+    std::queue<std::unique_ptr<PrologueTask>> simple_tasks;
+#endif
 };
 
 // private part

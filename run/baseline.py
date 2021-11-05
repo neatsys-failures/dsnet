@@ -13,13 +13,15 @@ pyrem.host.LocalHost().run(['make', 'bench/replica', 'bench/client']).start(wait
 
 proj_dir = '/home/cowsay/dsnet/'
 local_dir = '/ws/dsnet/'
+duration = 10
+
 for i in range(5):
     pyrem.host.LocalHost().run([
         'rsync', '-a', local_dir, f'nsl-node{i + 1}:' + proj_dir[:-1]
     ]).start(wait=True)
 
 replica_cmd = [
-    'timeout', '12',
+    'timeout', f'{duration + 2}',
     proj_dir + 'bench/replica',
     '-c', proj_dir + 'run/nsl.txt',
     '-m', 'signedunrep',
@@ -27,12 +29,13 @@ replica_cmd = [
     '-w', '16',
 ]
 client_cmd = [
+    'timeout', f'{duration + 2}',
     proj_dir  + 'bench/client',
     '-c', proj_dir + 'run/nsl.txt',
     '-m', 'signedunrep',
     '-h', '11.0.0.101',
-    '-u', '10',
-    '-t', '32',
+    '-u', f'{duration}',
+    '-t', '3',
 ]
 node = [
     pyrem.host.RemoteHost('nsl-node1'),

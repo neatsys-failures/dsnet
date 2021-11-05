@@ -46,21 +46,23 @@ void SignedUnrepReplica::HandleRequest(
     viewstamp_t v(0, last_op);
     log.Append(new LogEntry(v, LOG_STATE_RECEIVED, msg.req()));
 
-    ToClientMessage m;
-    ReplyMessage *reply = m.mutable_reply();
-    Execute(last_op, msg.req(), *reply);
-    // The protocol defines these as required, even if they're not
-    // meaningful.
-    reply->set_view(0);
-    reply->set_opnum(last_op);
-    *reply->mutable_req() = msg.req();
+    {
+        ToClientMessage m;
+        ReplyMessage *reply = m.mutable_reply();
+        Execute(last_op, msg.req(), *reply);
+        // The protocol defines these as required, even if they're not
+        // meaningful.
+        reply->set_view(0);
+        reply->set_opnum(last_op);
+        *reply->mutable_req() = msg.req();
 
-    UpdateClientTable(msg.req(), m);
+        UpdateClientTable(msg.req(), m);
 
-    Latency_Start(&replica_epilogue);
-    PBMessage pb_m(m);
-    if (!(transport->SendMessage(this, remote, SignedAdapter(pb_m, identifier))))
-        Warning("Failed to send reply message");
+        Latency_Start(&replica_epilogue);
+        PBMessage pb_m(m);
+        if (!(transport->SendMessage(this, remote, SignedAdapter(pb_m, identifier))))
+            Warning("Failed to send reply message");
+    }
     Latency_End(&replica_epilogue);
 }
 
@@ -113,19 +115,22 @@ void SignedUnrepReplica::ReceiveMessage(
 }
 
 void SignedUnrepReplica::PollVerifiedMessage() {
-    while (unique_ptr<PrologueTask> verified = prologue.Dequeue()) {
+    while (unique_ptr<PrologueTask> unscoped_verified = prologue.Dequeue()) {
         Latency_Start(&replica_total);
-        const TransportAddress &remote = verified->Remote();
-        ToReplicaMessage replica_msg = verified->Message<ToReplicaMessage>();
-        switch (replica_msg.msg_case()) {
-            case ToReplicaMessage::MsgCase::kRequest:
-                HandleRequest(remote, replica_msg.request());
-                break;
-            case ToReplicaMessage::MsgCase::kUnloggedRequest:
-                HandleUnloggedRequest(remote, replica_msg.unlogged_request());
-                break;
-            default:
-                Panic("Received unexpected message type: %u", replica_msg.msg_case());
+        {
+            auto verified = move(unscoped_verified);
+            const TransportAddress &remote = verified->Remote();
+            ToReplicaMessage replica_msg = verified->Message<ToReplicaMessage>();
+            switch (replica_msg.msg_case()) {
+                case ToReplicaMessage::MsgCase::kRequest:
+                    HandleRequest(remote, replica_msg.request());
+                    break;
+                case ToReplicaMessage::MsgCase::kUnloggedRequest:
+                    HandleUnloggedRequest(remote, replica_msg.unlogged_request());
+                    break;
+                default:
+                    Panic("Received unexpected message type: %u", replica_msg.msg_case());
+            }
         }
         Latency_End(&replica_total);
     }

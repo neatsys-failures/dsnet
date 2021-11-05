@@ -8,6 +8,7 @@ LD = c++
 
 CFLAGS := -g -Wall -pthread -iquote.obj/gen -Wno-uninitialized -Wno-array-bounds
 CFLAGS += -O3 -DNASSERT  # bench mode
+CFLAGS += -DDSNET_SIMPLE_TASKQUEUE
 
 CXXFLAGS := -std=c++14
 LDFLAGS := -levent_pthreads -ldl

@@ -1,5 +1,6 @@
 #include "common/taskqueue.h"
 #include "lib/latency.h"
+#include "lib/message.h"
 
 #include <chrono>
 #include <sstream>
@@ -15,6 +16,8 @@ namespace dsnet {
 static Latency_t prologue_latency[256];
 static Latency_t prologue_latency_sum;
 static Latency_t enqueue_latency, dequeue_latency;
+
+#ifndef DSNET_SIMPLE_TASKQUEUE
 
 PrologueQueue::PrologueQueue(int nb_thread)
     : pool(nb_thread), nb_thread(nb_thread)
@@ -72,5 +75,45 @@ auto PrologueQueue::Dequeue() -> unique_ptr<PrologueTask> {
     Latency_EndType(&dequeue_latency, 'e');
     return nullptr;
 }
+
+#else
+
+PrologueQueue::PrologueQueue(int nb_thread) {
+    Notice("Simple PrologueQueue enabled");
+    _Latency_Init(&enqueue_latency, "enqueue");
+    _Latency_Init(&dequeue_latency, "dequeue");
+    _Latency_Init(&prologue_latency_sum, "prologue_task");
+}
+
+PrologueQueue::~PrologueQueue() {
+    Latency_Dump(&enqueue_latency);
+    Latency_Dump(&prologue_latency_sum);
+    Latency_Dump(&dequeue_latency);
+}
+
+void PrologueQueue::Enqueue(unique_ptr<PrologueTask> task, Prologue prologue) {
+    Latency_Start(&prologue_latency_sum);
+    prologue(*task);
+    Latency_End(&prologue_latency_sum);
+    Latency_Start(&enqueue_latency);
+    simple_tasks.push(move(task));
+    Latency_End(&enqueue_latency);
+}
+
+auto PrologueQueue::Dequeue() -> unique_ptr<PrologueTask> {
+    Latency_Start(&dequeue_latency);
+    while (simple_tasks.size() != 0) {
+        unique_ptr<PrologueTask> task = move(simple_tasks.front());
+        simple_tasks.pop();
+        if (task->HasMessage()) {
+            Latency_End(&dequeue_latency);
+            return move(task);
+        }
+    }
+    Latency_EndType(&dequeue_latency, 'e');
+    return nullptr;
+}
+
+#endif
 
 }
