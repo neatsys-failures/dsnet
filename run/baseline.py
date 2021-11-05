@@ -19,6 +19,7 @@ for i in range(5):
     ]).start(wait=True)
 
 replica_cmd = [
+    'timeout', '12',
     proj_dir + 'bench/replica',
     '-c', proj_dir + 'run/nsl.txt',
     '-m', 'signedunrep',
@@ -31,6 +32,7 @@ client_cmd = [
     '-m', 'signedunrep',
     '-h', '11.0.0.101',
     '-u', '10',
+    '-t', '32',
 ]
 node = [
     pyrem.host.RemoteHost('nsl-node1'),
@@ -39,12 +41,14 @@ node = [
     pyrem.host.RemoteHost('nsl-node4'),
     pyrem.host.RemoteHost('nsl-node5'),
 ]
-node[0].run(replica_cmd).start()
+replica_task = node[0].run(replica_cmd, kill_remote=False)
+replica_task.start()
 client_task = [
     node[4].run(client_cmd, return_output=True)
-    for _ in range(16)
+    for _ in range(1)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
+replica_task.wait()
 throughput_sum = 0
 median_latency_max = 0
 for i, task in enumerate(client_task):

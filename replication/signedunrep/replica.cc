@@ -3,6 +3,7 @@
 #include "lib/message.h"
 #include "lib/assert.h"
 #include "lib/transport.h"
+#include "lib/latency.h"
 #include "common/replica.h"
 #include "common/pbmessage.h"
 #include "common/signedadapter.h"
@@ -17,6 +18,9 @@ using std::string;
 using std::memcpy;
 using std::unique_ptr;
 using std::move;
+
+DEFINE_LATENCY(replica_total);
+DEFINE_LATENCY(replica_epilogue);
 
 void SignedUnrepReplica::HandleRequest(
     const TransportAddress &remote,
@@ -50,11 +54,14 @@ void SignedUnrepReplica::HandleRequest(
     reply->set_view(0);
     reply->set_opnum(last_op);
     *reply->mutable_req() = msg.req();
+
+    UpdateClientTable(msg.req(), m);
+
+    Latency_Start(&replica_epilogue);
     PBMessage pb_m(m);
     if (!(transport->SendMessage(this, remote, SignedAdapter(pb_m, identifier))))
         Warning("Failed to send reply message");
-
-    UpdateClientTable(msg.req(), m);
+    Latency_End(&replica_epilogue);
 }
 
 void SignedUnrepReplica::HandleUnloggedRequest(
@@ -80,6 +87,8 @@ SignedUnrepReplica::SignedUnrepReplica(
 
 SignedUnrepReplica::~SignedUnrepReplica() {
     delete poll_timeout;
+    Latency_Dump(&replica_total);
+    Latency_Dump(&replica_epilogue);
 }
 
 void SignedUnrepReplica::ReceiveMessage(
@@ -105,6 +114,7 @@ void SignedUnrepReplica::ReceiveMessage(
 
 void SignedUnrepReplica::PollVerifiedMessage() {
     while (unique_ptr<PrologueTask> verified = prologue.Dequeue()) {
+        Latency_Start(&replica_total);
         const TransportAddress &remote = verified->Remote();
         ToReplicaMessage replica_msg = verified->Message<ToReplicaMessage>();
         switch (replica_msg.msg_case()) {
@@ -117,6 +127,7 @@ void SignedUnrepReplica::PollVerifiedMessage() {
             default:
                 Panic("Received unexpected message type: %u", replica_msg.msg_case());
         }
+        Latency_End(&replica_total);
     }
 }
 
