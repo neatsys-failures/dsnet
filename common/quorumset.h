@@ -5,7 +5,6 @@
  *   replicas and determining whether a quorum of responses has been met
  *
  * Copyright 2013 Dan R. K. Ports  <drkp@cs.washington.edu>
- * Copyright 2021 Sun Guangda      <sung@comp.nus.edu.sg>
  *
  * Permission is hereby granted, free of charge, to any person
  * obtaining a copy of this software and associated documentation
@@ -31,8 +30,6 @@
 
 #ifndef _COMMON_QUORUMSET_H_
 #define _COMMON_QUORUMSET_H_
-
-#include <google/protobuf/message.h>
 
 #include <map>
 #include <type_traits>

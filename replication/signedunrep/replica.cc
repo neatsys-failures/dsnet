@@ -72,7 +72,7 @@ SignedUnrepReplica::SignedUnrepReplica(
     this->status = STATUS_NORMAL;
     this->last_op = 0;
 
-    poll_timeout = new Timeout(transport, 1, [this]() {
+    poll_timeout = new Timeout(transport, 100, [this]() {
         PollVerifiedMessage();
     });
     poll_timeout->Start();

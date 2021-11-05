@@ -19,8 +19,8 @@ static const unsigned char STEVE_SECKEY[] = {
     0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
     0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
 };
-static const secp256k1_pubkey *STEVE_PUBKEY;
-static const secp256k1_context *PROTO_CTX_SIGN, *PROTO_CTX_VERIFY;
+static __thread const secp256k1_pubkey *STEVE_PUBKEY;
+static __thread const secp256k1_context *PROTO_CTX_SIGN = nullptr, *PROTO_CTX_VERIFY = nullptr;
 
 SignedAdapter::SignedAdapter(Message &inner_message, const string identifier) 
     : inner_message(inner_message), identifier(identifier) 

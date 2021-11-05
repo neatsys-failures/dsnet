@@ -4,8 +4,10 @@
 namespace dsnet {
 
 // Message with trusted content made by node with certain identifier.
-// Each identifier is associated with a secret key, which should be configured upon
-// system start up (WIP).
+// Every node should get an identifier from (imagined) identity providing service.
+// The identifier should be fixed, binding to address for replicas or client id for clients.
+// Internal to SignedAdapter, each identifier is associated with a secret key, 
+// which should be configured upon system start up (WIP).
 class SignedAdapter : public Message {
 public:
     Message *Clone() const override;
