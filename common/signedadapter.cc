@@ -53,6 +53,8 @@ size_t SignedAdapter::SerializedSize() const {
     return inner_message.SerializedSize() + 80;
 }
 
+#ifndef DSNET_NO_SIGN
+
 void SignedAdapter::Parse(const void *buf, size_t size) {
     const char *buf_id = (const char *) buf;
     const unsigned char *buf_sig = ((const unsigned char *) buf) + 16;
@@ -114,5 +116,31 @@ void SignedAdapter::Serialize(void *buf) const {
     ASSERT(code);
     secp256k1_context_destroy(ctx);
 }
+
+#else
+
+void SignedAdapter::Parse(const void *buf, size_t size) {
+    const unsigned char *buf_inner = ((const unsigned char *) buf) + 80;
+    size_t inner_size = size - 80;
+
+    unsigned char *digest = SHA256(buf_inner, inner_size, new unsigned char[32]);
+    this->digest.assign((char *)digest, 32);
+    is_verified = true;
+    delete[] digest;
+    inner_message.Parse(buf_inner, inner_size);
+}
+
+void SignedAdapter::Serialize(void *buf) const {
+    char *buf_id = (char *)buf;
+    unsigned char *buf_inner = ((unsigned char *) buf) + 80;
+    inner_message.Serialize(buf_inner);
+    size_t inner_size = inner_message.SerializedSize();
+
+    memset(buf_id, 0, 16);
+    ASSERT(identifier.size() < 16);
+    identifier.copy(buf_id, identifier.size());
+}
+
+#endif
 
 }

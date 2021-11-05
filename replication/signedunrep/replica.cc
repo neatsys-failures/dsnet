@@ -26,7 +26,6 @@ void SignedUnrepReplica::HandleRequest(
     const TransportAddress &remote,
     const proto::RequestMessage &msg) 
 {
-
     auto kv = clientTable.find(msg.req().clientid());
     if (kv != clientTable.end()) {
         ClientTableEntry &entry = kv->second;
@@ -78,6 +77,10 @@ SignedUnrepReplica::SignedUnrepReplica(
     : Replica(config, 0, 0, true, transport, app),
     log(false), identifier(identifier), prologue(nb_worker_thread)
 {
+#ifdef DSNET_NO_SIGN
+    Notice("Signing is disabled");
+#endif
+
     this->status = STATUS_NORMAL;
     this->last_op = 0;
 

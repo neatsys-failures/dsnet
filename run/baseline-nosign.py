@@ -24,7 +24,6 @@ client_cmd = [
     '-h', '11.0.0.101',
     '-u', '10',
     '-t', '3',
-    # '-u', '30',
 ]
 node = [
     pyrem.host.RemoteHost('nsl-node1'),

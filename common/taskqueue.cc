@@ -107,7 +107,7 @@ auto PrologueQueue::Dequeue() -> unique_ptr<PrologueTask> {
         simple_tasks.pop();
         if (task->HasMessage()) {
             Latency_End(&dequeue_latency);
-            return move(task);
+            return task;
         }
     }
     Latency_EndType(&dequeue_latency, 'e');
