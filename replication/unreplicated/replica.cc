@@ -64,7 +64,7 @@ void UnreplicatedReplica::HandleRequest(
 
     last_op += 1;
     viewstamp_t v(0, last_op);
-    log.Append(new LogEntry(v, LOG_STATE_RECEIVED, msg.req()));
+    // log.Append(new LogEntry(v, LOG_STATE_RECEIVED, msg.req()));
 
     Execute(last_op, msg.req(), *reply);
 

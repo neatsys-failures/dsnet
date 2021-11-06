@@ -3,7 +3,8 @@ import pathlib
 import pyrem.host
 import pyrem.task
 
-print('baseline')
+print('Standard NSL system performance check')
+print('Expect ~290000 <43')
 proj_dir = '/home/cowsay/dsnet/'
 local_dir = '/ws/dsnet/'
 for i in range(5):
@@ -18,12 +19,12 @@ replica_cmd = [
     '-i', '0',
 ]
 client_cmd = [
+    'timeout', '12',
     proj_dir  + 'bench/client',
     '-c', proj_dir + 'run/nsl.txt',
     '-m', 'unreplicated',
     '-h', '11.0.0.101',
     '-u', '10',
-    '-t', '3',
 ]
 node = [
     pyrem.host.RemoteHost('nsl-node1'),
@@ -32,10 +33,11 @@ node = [
     pyrem.host.RemoteHost('nsl-node4'),
     pyrem.host.RemoteHost('nsl-node5'),
 ]
-node[0].run(replica_cmd).start()
+node[0].run(replica_cmd, quiet=True).start()
 client_task = [
-    node[4].run(client_cmd, return_output=True)
-    for _ in range(16)
+    node[4].run(client_cmd  # + ['-s', proj_dir + f'stat-{i}', '-i', '1']
+    , return_output=True)
+    for i in range(12)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
 throughput_sum = 0
@@ -52,4 +54,4 @@ for i, task in enumerate(client_task):
         continue
     match = re.search(r'Median latency is (\d+) us$', output, re.MULTILINE)
     median_latency_max = max(median_latency_max, int(match[1]))
-print(throughput_sum, median_latency_max)
+print(f'        {throughput_sum}  {median_latency_max}')
