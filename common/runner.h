@@ -23,7 +23,8 @@ public:
     Runner(int nb_worker_thread);
     ~Runner();
 
-    using Prologue = std::function<std::function<void ()> ()>;
+    using Solo = std::function<void ()>;
+    using Prologue = std::function<Solo ()>;
     void RunPrologue(Prologue prologue);
     using Epilogue = std::function<void ()>;
     void RunEpilogue(Epilogue epilogue);

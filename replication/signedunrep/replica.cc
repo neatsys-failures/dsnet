@@ -45,24 +45,31 @@ void SignedUnrepReplica::HandleRequest(
     viewstamp_t v(0, last_op);
     log.Append(new LogEntry(v, LOG_STATE_RECEIVED, msg.req()));
 
-    {
-        ToClientMessage m;
-        ReplyMessage *reply = m.mutable_reply();
-        Execute(last_op, msg.req(), *reply);
-        // The protocol defines these as required, even if they're not
-        // meaningful.
-        reply->set_view(0);
-        reply->set_opnum(last_op);
-        *reply->mutable_req() = msg.req();
+    auto m = unique_ptr<ToClientMessage>(new ToClientMessage);
+    ReplyMessage *reply = m->mutable_reply();
+    Execute(last_op, msg.req(), *reply);
+    // The protocol defines these as required, even if they're not
+    // meaningful.
+    reply->set_view(0);
+    reply->set_opnum(last_op);
+    *reply->mutable_req() = msg.req();
 
-        UpdateClientTable(msg.req(), m);
+    UpdateClientTable(msg.req(), *m);
 
-        Latency_Start(&replica_epilogue);
-        PBMessage pb_m(m);
-        if (!(transport->SendMessage(this, remote, SignedAdapter(pb_m, identifier))))
+    runner.RunEpilogue([
+        this,
+        leaked_remote = remote.clone(),
+        leaked_m = m.release()
+    ]() {
+        auto remote = unique_ptr<TransportAddress>(leaked_remote);
+        auto m = unique_ptr<ToClientMessage>(leaked_m);
+
+        // Latency_Start(&replica_epilogue);
+        PBMessage pb_m(*m);
+        if (!(transport->SendMessage(this, *remote, SignedAdapter(pb_m, identifier))))
             Warning("Failed to send reply message");
-    }
-    Latency_End(&replica_epilogue);
+        // Latency_End(&replica_epilogue);
+    });
 }
 
 void SignedUnrepReplica::HandleUnloggedRequest(
@@ -75,7 +82,7 @@ SignedUnrepReplica::SignedUnrepReplica(
     Configuration config, string identifier, int nb_worker_thread,
     Transport *transport, AppReplica *app)
     : Replica(config, 0, 0, true, transport, app),
-    log(false), identifier(identifier), prologue(nb_worker_thread)
+    log(false), identifier(identifier), runner(nb_worker_thread)
 {
 #ifdef DSNET_NO_SIGN
     Notice("Signing is disabled");
@@ -83,15 +90,9 @@ SignedUnrepReplica::SignedUnrepReplica(
 
     this->status = STATUS_NORMAL;
     this->last_op = 0;
-
-    poll_timeout = new Timeout(transport, 100, [this]() {
-        PollVerifiedMessage();
-    });
-    poll_timeout->Start();
 }
 
 SignedUnrepReplica::~SignedUnrepReplica() {
-    delete poll_timeout;
     Latency_Dump(&replica_total);
     Latency_Dump(&replica_epilogue);
 }
@@ -99,44 +100,47 @@ SignedUnrepReplica::~SignedUnrepReplica() {
 void SignedUnrepReplica::ReceiveMessage(
     const TransportAddress &remote, void *buf, size_t size)
 {
-    prologue.Enqueue(
-        unique_ptr<PrologueTask>(PrologueTask::New<ToReplicaMessage>(buf, size, remote)),
-        [this](PrologueTask &task) {
-            auto message = unique_ptr<ToReplicaMessage>(new ToReplicaMessage);
-            PBMessage m(*message);
-            (void) this->configuration;  // TODO get remote id from configure
-            SignedAdapter signed_adapter(m, "Steve");
-            task.ParseWithAdapter(signed_adapter);
-            if (!signed_adapter.IsVerified()) {
-                Warning("Deny ill-formed message");
-                return;
-            }
-            task.SetMessage(move(message));
+    runner.RunPrologue([
+        this, 
+        leaked_remote = remote.clone(), 
+        owned_buffer = string((const char *)buf, size)
+    ]() mutable -> Runner::Solo {
+        auto owned_remote = unique_ptr<TransportAddress>(leaked_remote);
+        auto replica_msg = unique_ptr<ToReplicaMessage>(new ToReplicaMessage);
+        PBMessage m(*replica_msg);
+        (void) this->configuration;  // TODO get remote id from configure
+        SignedAdapter signed_adapter(m, "Steve");
+        signed_adapter.Parse(owned_buffer.data(), owned_buffer.size());
+        if (!signed_adapter.IsVerified()) {
+            Warning("Deny ill-formed message");
+            return nullptr;
         }
-    );
-    PollVerifiedMessage();
-}
-
-void SignedUnrepReplica::PollVerifiedMessage() {
-    while (unique_ptr<PrologueTask> unscoped_verified = prologue.Dequeue()) {
-        Latency_Start(&replica_total);
-        {
-            auto verified = move(unscoped_verified);
-            const TransportAddress &remote = verified->Remote();
-            ToReplicaMessage replica_msg = verified->Message<ToReplicaMessage>();
-            switch (replica_msg.msg_case()) {
-                case ToReplicaMessage::MsgCase::kRequest:
-                    HandleRequest(remote, replica_msg.request());
-                    break;
-                case ToReplicaMessage::MsgCase::kUnloggedRequest:
-                    HandleUnloggedRequest(remote, replica_msg.unlogged_request());
-                    break;
-                default:
-                    Panic("Received unexpected message type: %u", replica_msg.msg_case());
-            }
+        switch (replica_msg->msg_case()) {
+            case ToReplicaMessage::MsgCase::kRequest:
+                return [
+                    this,
+                    leaked_remote = owned_remote.release(),
+                    leaked_replica_msg = replica_msg.release()
+                ]() {
+                    auto remote = unique_ptr<TransportAddress>(leaked_remote);
+                    auto replica_msg = unique_ptr<ToReplicaMessage>(leaked_replica_msg);
+                    HandleRequest(*remote, replica_msg->request());
+                };
+            case ToReplicaMessage::MsgCase::kUnloggedRequest:
+                return [
+                    this,
+                    leaked_remote = owned_remote.release(),
+                    leaked_replica_msg = replica_msg.release()
+                ]() {
+                    auto remote = unique_ptr<TransportAddress>(leaked_remote);
+                    auto replica_msg = unique_ptr<ToReplicaMessage>(leaked_replica_msg);
+                    HandleUnloggedRequest(*remote, replica_msg->unlogged_request());
+                };
+            default:
+                Panic("Received unexpected message type: %u", replica_msg->msg_case());
+                return nullptr;
         }
-        Latency_End(&replica_total);
-    }
+    });
 }
 
 void SignedUnrepReplica::UpdateClientTable(
