@@ -30,6 +30,9 @@ public:
     void RunEpilogue(Epilogue epilogue);
 private:
     ctpl::thread_pool worker_pool, solo_thread;
+#define NB_CONCURRENT_TASK 96  // concurrent task that not entering solo yet
+    std::promise<void> task_slot[NB_CONCURRENT_TASK];
+    int next_op;
 };
 
 }

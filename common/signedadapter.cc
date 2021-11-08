@@ -20,7 +20,7 @@ static const unsigned char STEVE_SECKEY[] = {
     0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
 };
 static __thread const secp256k1_pubkey *STEVE_PUBKEY;
-static __thread const secp256k1_context *PROTO_CTX_SIGN = nullptr, *PROTO_CTX_VERIFY = nullptr;
+static __thread secp256k1_context *PROTO_CTX_SIGN = nullptr, *PROTO_CTX_VERIFY = nullptr;
 
 SignedAdapter::SignedAdapter(Message &inner_message, const string identifier) 
     : inner_message(inner_message), identifier(identifier) 
@@ -31,10 +31,8 @@ SignedAdapter::SignedAdapter(Message &inner_message, const string identifier)
     PROTO_CTX_SIGN = secp256k1_context_create(SECP256K1_CONTEXT_SIGN);
     PROTO_CTX_VERIFY = secp256k1_context_create(SECP256K1_CONTEXT_VERIFY);
     STEVE_PUBKEY = new secp256k1_pubkey;
-    secp256k1_context *ctx = secp256k1_context_clone(PROTO_CTX_SIGN);
-    int code = secp256k1_ec_pubkey_create(ctx, (secp256k1_pubkey *) STEVE_PUBKEY, STEVE_SECKEY);
+    int code = secp256k1_ec_pubkey_create(PROTO_CTX_SIGN, (secp256k1_pubkey *) STEVE_PUBKEY, STEVE_SECKEY);
     ASSERT(code);
-    secp256k1_context_destroy(ctx);
 }
 
 Message *SignedAdapter::Clone() const {
@@ -72,12 +70,12 @@ void SignedAdapter::Parse(const void *buf, size_t size) {
     } else {
         NOT_IMPLEMENTED();
     }
-    secp256k1_context *ctx = secp256k1_context_clone(PROTO_CTX_VERIFY);
+    secp256k1_context *ctx = PROTO_CTX_VERIFY;
     secp256k1_ecdsa_signature sig;
     unsigned char *digest;  // must be declared before goto
     if (!secp256k1_ecdsa_signature_parse_compact(ctx, &sig, buf_sig)) {
         is_verified = false;
-        goto ctx_destroy;
+        return;
     }
     digest = SHA256(buf_inner, inner_size, new unsigned char[32]);
     this->digest.assign((char *)digest, 32);
@@ -86,8 +84,6 @@ void SignedAdapter::Parse(const void *buf, size_t size) {
     if (is_verified) {
         inner_message.Parse(buf_inner, inner_size);
     }
-ctx_destroy:
-    secp256k1_context_destroy(ctx);
 }
 
 void SignedAdapter::Serialize(void *buf) const {
@@ -106,7 +102,7 @@ void SignedAdapter::Serialize(void *buf) const {
     } else {
         NOT_IMPLEMENTED();
     }
-    secp256k1_context *ctx = secp256k1_context_clone(PROTO_CTX_SIGN);
+    secp256k1_context *ctx = PROTO_CTX_SIGN;
     unsigned char *digest = SHA256(buf_inner, inner_size, new unsigned char[32]);
     secp256k1_ecdsa_signature sig;
     int code = secp256k1_ecdsa_sign(ctx, &sig, digest, seckey, nullptr, nullptr);
@@ -114,7 +110,6 @@ void SignedAdapter::Serialize(void *buf) const {
     delete[] digest;
     code = secp256k1_ecdsa_signature_serialize_compact(ctx, buf_sig, &sig);
     ASSERT(code);
-    secp256k1_context_destroy(ctx);
 }
 
 #else
