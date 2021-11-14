@@ -1,5 +1,6 @@
 #include "common/runner.h"
 #include "lib/assert.h"
+#include "lib/latency.h"
 #include <future>
 #include <pthread.h>
 
@@ -19,10 +20,11 @@ using std::move;
 using std::future;
 
 const int WORKER_CPU[] = {
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
-    32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
     16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
-    48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63
+    48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+    34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
+    15, 32, 33
 };
 
 Runner::Runner(int nb_worker_thread) 
@@ -42,15 +44,26 @@ Runner::Runner(int nb_worker_thread)
     }
 }
 
+DEFINE_LATENCY(solo_wait);
+DEFINE_LATENCY(solo_work);
+DEFINE_LATENCY(prologue_wait);
+DEFINE_LATENCY(push);
+
 Runner::~Runner() {
-    // TODO dump latency
+    Latency_Dump(&prologue_wait);
+    Latency_Dump(&solo_wait);
+    Latency_Dump(&solo_work);
+    Latency_Dump(&push);
 }
 
 void Runner::RunPrologue(Prologue prologue) {
     // next_op is not synchronized currently, because RunPrologue is always
     // invoked from the same thread
-    task_slot[next_op].get_future().get();
-    task_slot[next_op] = promise<void>();
+    Latency_Start(&prologue_wait);
+    // task_slot[next_op].get_future().get();
+    Latency_End(&prologue_wait);
+    Latency_Start(&push);
+    // task_slot[next_op] = promise<void>();
     auto solo_future = worker_pool.push([
         prologue
     ](int id) mutable {
@@ -62,16 +75,21 @@ void Runner::RunPrologue(Prologue prologue) {
         next_op = this->next_op,
         solo_future = move(solo_future)
     ](int id) mutable {
-        task_slot[next_op].set_value();
+        Latency_Start(&solo_wait);
         Solo solo = solo_future.get();
+        Latency_End(&solo_wait);
+        // task_slot[next_op].set_value();
+        Latency_Start(&solo_work);
         if (solo) {
             solo();
         }
+        Latency_End(&solo_work);
     });
     next_op += 1;
     if (next_op == NB_CONCURRENT_TASK) {
         next_op = 0;
     }
+    Latency_End(&push);
 }
 
 void Runner::RunEpilogue(Epilogue epilogue) {

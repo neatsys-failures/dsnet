@@ -46,6 +46,7 @@ public:
     UnreplicatedReplica(
         Configuration config, int myIdx, bool initialize,
         Transport *transport, AppReplica *app);
+    ~UnreplicatedReplica();
     void ReceiveMessage(
         const TransportAddress &remote, void *buf, size_t size) override;
 

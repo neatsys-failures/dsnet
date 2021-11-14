@@ -4,21 +4,38 @@ import sys
 import pyrem.host
 import pyrem.task
 
-print('baseline')
+print('Baseline performance')
 for line in open(pathlib.Path() / 'Makefile'):
     if '-O3' in line and line.strip().startswith('#'):
-        print('Makefile is not in performance mode')
+        print('Makefile is not in benchmark mode')
         sys.exit(1)
-pyrem.host.LocalHost().run(['make', 'bench/replica', 'bench/client']).start(wait=True)
 
 proj_dir = '/home/cowsay/dsnet/'
 local_dir = '/ws/dsnet/'
 duration = 10
 
-for i in range(5):
-    pyrem.host.LocalHost().run([
-        'rsync', '-a', local_dir, f'nsl-node{i + 1}:' + proj_dir[:-1]
-    ]).start(wait=True)
+node = [
+    pyrem.host.LocalHost(),
+    pyrem.host.RemoteHost('nsl-node1'),
+    pyrem.host.RemoteHost('nsl-node2'),
+    pyrem.host.RemoteHost('nsl-node3'),
+    pyrem.host.RemoteHost('nsl-node4'),
+    pyrem.host.RemoteHost('nsl-node5'),
+]
+node[0].run([
+    'rsync', '-a', 
+    '--exclude', '.obj', 
+    '--exclude', 'bench/client',
+    '--exclude', 'bench/replica',
+    local_dir, f'nsl-node1:' + proj_dir[:-1]
+]).start(wait=True)
+rval = node[1].run(['make', '-j', '64', '-C', '/home/cowsay/dsnet', 'bench/client', 'bench/replica']).start(wait=True)
+if rval['retcode'] != 0:
+    sys.exit(1)
+node[1].run([
+    'rsync', proj_dir + 'bench/client', f'nsl-node5.d1:{proj_dir}' + 'bench/client', 
+]).start(wait=True)
+
 
 replica_cmd = [
     'timeout', f'{duration + 2}',
@@ -26,7 +43,7 @@ replica_cmd = [
     '-c', proj_dir + 'run/nsl.txt',
     '-m', 'signedunrep',
     '-i', '0',
-    '-w', '14',
+    '-w', '15',
 ]
 client_cmd = [
     'timeout', f'{duration + 2}',
@@ -35,20 +52,14 @@ client_cmd = [
     '-m', 'signedunrep',
     '-h', '11.0.0.101',
     '-u', f'{duration}',
-    '-t', '8',
+    '-t', '4',
 ]
-node = [
-    pyrem.host.RemoteHost('nsl-node1'),
-    pyrem.host.RemoteHost('nsl-node2'),
-    pyrem.host.RemoteHost('nsl-node3'),
-    pyrem.host.RemoteHost('nsl-node4'),
-    pyrem.host.RemoteHost('nsl-node5'),
-]
-replica_task = node[0].run(replica_cmd, kill_remote=False)
+
+replica_task = node[1].run(replica_cmd, kill_remote=False)
 replica_task.start()
 client_task = [
-    node[4].run(client_cmd, return_output=True)
-    for _ in range(32)
+    node[5].run(client_cmd, return_output=True)
+    for _ in range(16)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
 replica_task.wait()

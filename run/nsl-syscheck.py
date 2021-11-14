@@ -7,13 +7,13 @@ print('Standard NSL system performance check')
 print('Expect ~360000 <=42')
 proj_dir = '/home/cowsay/dsnet/'
 local_dir = '/ws/dsnet/'
-for i in range(5):
+for i in (1, 5):
     pyrem.host.LocalHost().run([
-        'rsync', '-a', local_dir, f'nsl-node{i + 1}:' + proj_dir[:-1]
+        'rsync', '-a', local_dir, f'nsl-node{i}:' + proj_dir[:-1]
     ]).start(wait=True)
 
 replica_cmd = [
-    'taskset', '--cpu-list', '0',
+    'taskset', '0x01',
     proj_dir + 'bench/replica',
     '-c', proj_dir + 'run/nsl.txt',
     '-m', 'unreplicated',

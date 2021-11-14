@@ -35,16 +35,24 @@
 
 #include "lib/message.h"
 #include "lib/transport.h"
+#include "lib/latency.h"
 
 namespace dsnet {
 namespace unreplicated {
 
 using namespace proto;
 
+DEFINE_LATENCY(handle_request);
+
+UnreplicatedReplica::~UnreplicatedReplica() {
+    Latency_Dump(&handle_request);
+}
+
 void UnreplicatedReplica::HandleRequest(
     const TransportAddress &remote,
     const proto::RequestMessage &msg) 
 {
+    Latency_Start(&handle_request);
     ToClientMessage m;
     ReplyMessage *reply = m.mutable_reply();
 
@@ -52,12 +60,14 @@ void UnreplicatedReplica::HandleRequest(
     if (kv != clientTable.end()) {
         ClientTableEntry &entry = kv->second;
         if (msg.req().clientreqid() < entry.lastReqId) {
+            Latency_EndType(&handle_request, 'n');
             return;
         }
         if (msg.req().clientreqid() == entry.lastReqId) {
             if (!(transport->SendMessage(this, remote, PBMessage(entry.reply)))) {
                 Warning("Failed to resend reply to client");
             }
+            Latency_EndType(&handle_request, 'r');
             return;
         }
     }
@@ -78,6 +88,7 @@ void UnreplicatedReplica::HandleRequest(
         Warning("Failed to send reply message");
 
     UpdateClientTable(msg.req(), m);
+    Latency_End(&handle_request);
 }
 
 void UnreplicatedReplica::HandleUnloggedRequest(
