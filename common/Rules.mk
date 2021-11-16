@@ -12,7 +12,8 @@ LIB-pbmessage := $(o)pbmessage.o
 
 LIB-taskqueue := $(o)taskqueue.o $(LIB-message)
 
-LIB-runner := $(o)runner.o
+LIB-runner := $(o)runner.o $(LIB-latency) $(LIB-message)
+$(o)runner.o: $(LIB-latency)
 
 LIB-signedadapter := $(o)signedadapter.o $(LIB-message)
 

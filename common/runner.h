@@ -2,7 +2,9 @@
 #include "lib/ctpl.h"
 #include <functional>
 #include <thread>
+#include <condition_variable>
 #include <queue>
+#include <mutex>
 
 namespace dsnet {
 
@@ -29,10 +31,27 @@ public:
     using Epilogue = std::function<void ()>;
     void RunEpilogue(Epilogue epilogue);
 private:
-    ctpl::thread_pool worker_pool, solo_thread;
-#define NB_CONCURRENT_TASK 96  // concurrent task that not entering solo yet
-    std::promise<void> task_slot[NB_CONCURRENT_TASK];
-    int next_op;
+    int nb_worker_thread;
+
+    std::thread worker_threads[128];
+    std::thread solo_thread, epilogue_thread;
+    bool shutdown;
+
+#define NB_CONCURRENT_TASK (56 * 4)
+    std::promise<void> solo_owned[NB_CONCURRENT_TASK];
+    std::promise<void> available[NB_CONCURRENT_TASK];
+
+    Prologue prologue_jobs[NB_CONCURRENT_TASK];
+    std::mutex prologue_mutexs[NB_CONCURRENT_TASK];
+    Solo solo_jobs[NB_CONCURRENT_TASK];
+
+    Epilogue epilogue_jobs[NB_CONCURRENT_TASK];
+    std::mutex epilogue_mutexs[NB_CONCURRENT_TASK];
+
+    int job_id, solo_job_id;
+    void RunWorkerThread(int worker_id);
+    void RunSoloThread();
+    void RunEpilogueThread();
 };
 
 }
