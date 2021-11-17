@@ -4,6 +4,7 @@
 #include <thread>
 #include <condition_variable>
 #include <queue>
+#include <deque>
 #include <mutex>
 
 namespace dsnet {
@@ -34,24 +35,30 @@ private:
     int nb_worker_thread;
 
     std::thread worker_threads[128];
-    std::thread solo_thread, epilogue_thread;
-    bool shutdown;
+    std::thread solo_thread;
+    volatile bool shutdown;
 
-#define NB_CONCURRENT_TASK (56 * 4)
-    std::promise<void> solo_owned[NB_CONCURRENT_TASK];
-    std::promise<void> available[NB_CONCURRENT_TASK];
+    int last_id;
+    volatile int solo_id;
 
-    Prologue prologue_jobs[NB_CONCURRENT_TASK];
-    std::mutex prologue_mutexs[NB_CONCURRENT_TASK];
-    Solo solo_jobs[NB_CONCURRENT_TASK];
+    struct WorkerTask {
+        int id;  // only for prologue
+        Prologue prologue;
+        Epilogue epilogue;
+    };
+    std::deque<WorkerTask> worker_task_queue;
+    std::mutex worker_task_queue_mutex;
+    std::mutex tri_mutex;
+    struct SoloTask {
+        int id;
+        Solo solo;
+        bool ready;
+    };
+    std::deque<SoloTask> solo_task_queue;
+    std::mutex solo_task_queue_mutex;
 
-    Epilogue epilogue_jobs[NB_CONCURRENT_TASK];
-    std::mutex epilogue_mutexs[NB_CONCURRENT_TASK];
-
-    int job_id, solo_job_id;
     void RunWorkerThread(int worker_id);
     void RunSoloThread();
-    void RunEpilogueThread();
 };
 
 }
