@@ -104,15 +104,13 @@ SignedUnrepReplica::~SignedUnrepReplica() {
 void SignedUnrepReplica::ReceiveMessage(
     const TransportAddress &remote, void *buf, size_t size)
 {
-    ToReplicaMessage *leaked_replica_msg = new ToReplicaMessage;
     runner.RunPrologue([
         this, 
         leaked_remote = remote.clone(), 
-        leaked_replica_msg,
         owned_buffer = string((const char *)buf, size)
     ]() mutable -> Runner::Solo {
         auto owned_remote = unique_ptr<TransportAddress>(leaked_remote);
-        auto replica_msg = unique_ptr<ToReplicaMessage>(leaked_replica_msg);
+        auto replica_msg = unique_ptr<ToReplicaMessage>(new ToReplicaMessage);
         PBMessage m(*replica_msg);
         (void) this->configuration;  // TODO get remote id from configure
         SignedAdapter signed_adapter(m, "Steve");

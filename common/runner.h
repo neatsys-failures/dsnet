@@ -33,32 +33,19 @@ public:
     void RunEpilogue(Epilogue epilogue);
 private:
     int nb_worker_thread;
-
     std::thread worker_threads[128];
-    std::thread solo_thread;
-    volatile bool shutdown;
+    std::atomic<bool> shutdown;
 
-    int last_id;
-    volatile int solo_id;
+#define NB_SLOT (nb_worker_thread * 2)
+#define NB_SLOT_MAX 1000
+    Prologue prologue_slots[NB_SLOT_MAX];
+    Epilogue epilogue_slots[NB_SLOT_MAX];
+    std::atomic<bool> slot_ready[NB_SLOT_MAX];
+    std::atomic<int> solo_slot;
 
-    struct WorkerTask {
-        int id;  // only for prologue
-        Prologue prologue;
-        Epilogue epilogue;
-    };
-    std::deque<WorkerTask> worker_task_queue;
-    std::mutex worker_task_queue_mutex;
-    std::mutex tri_mutex;
-    struct SoloTask {
-        int id;
-        Solo solo;
-        bool ready;
-    };
-    std::deque<SoloTask> solo_task_queue;
-    std::mutex solo_task_queue_mutex;
+    int next_slot;
 
     void RunWorkerThread(int worker_id);
-    void RunSoloThread();
 };
 
 }

@@ -43,7 +43,7 @@ replica_cmd = [
     '-c', proj_dir + 'run/nsl.txt',
     '-m', 'signedunrep',
     '-i', '0',
-    '-w', '58',
+    '-w', '16',
 ]
 client_cmd = [
     'timeout', f'{duration + 5}',
@@ -52,14 +52,14 @@ client_cmd = [
     '-m', 'signedunrep',
     '-h', '11.0.0.101',
     '-u', f'{duration}',
-    '-t', '12',
+    '-t', '64',
 ]
 
 replica_task = node[1].run(replica_cmd, kill_remote=False)
 replica_task.start()
 client_task = [
     node[5].run(client_cmd, return_output=True)
-    for _ in range(24)
+    for _ in range(32)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
 replica_task.wait()
