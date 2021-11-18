@@ -43,7 +43,7 @@ replica_cmd = [
     '-c', proj_dir + 'run/nsl.txt',
     '-m', 'signedunrep',
     '-i', '0',
-    '-w', '16',
+    '-w', '20',
 ]
 client_cmd = [
     'timeout', f'{duration + 5}',
@@ -52,7 +52,7 @@ client_cmd = [
     '-m', 'signedunrep',
     '-h', '11.0.0.101',
     '-u', f'{duration}',
-    '-t', '64',
+    '-t', '128',
 ]
 
 replica_task = node[1].run(replica_cmd, kill_remote=False)

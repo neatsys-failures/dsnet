@@ -36,11 +36,11 @@ private:
     std::thread worker_threads[128];
     std::atomic<bool> shutdown;
 
-#define NB_SLOT (nb_worker_thread * 2)
+#define NB_SLOT (nb_worker_thread * 10)
 #define NB_SLOT_MAX 1000
     Prologue prologue_slots[NB_SLOT_MAX];
     Epilogue epilogue_slots[NB_SLOT_MAX];
-    std::atomic<bool> slot_ready[NB_SLOT_MAX];
+    std::atomic<bool> *slot_ready[NB_SLOT_MAX];
     std::atomic<int> solo_slot;
 
     int next_slot;

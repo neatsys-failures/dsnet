@@ -22,6 +22,7 @@ using std::future_error;
 using std::thread;
 using std::unique_lock;
 using std::mutex;
+using std::atomic;
 
 static Latency_t worker_spin[128], solo_spin[128], job_total[128];
 static Latency_t driver_spin;
@@ -40,9 +41,9 @@ Runner::Runner(int nb_worker_thread)
     }
     _Latency_Init(&driver_spin, "driver_spin");
 
-    for (int i = 0; i < NB_SLOT; i += 1) {
-        slot_ready[i] = true;
-    }
+    // for (int i = 0; i < NB_SLOT; i += 1) {
+    //     slot_ready[i] = true;
+    // }
 
     for (int i = 0; i < nb_worker_thread; i += 1) {
         worker_threads[i] = thread([this, i]() {
@@ -62,6 +63,8 @@ Runner::Runner(int nb_worker_thread)
         }
         SetThreadAffinity(worker_threads[i].native_handle(), cpu);
     }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
 }
 
 Runner::~Runner() {
@@ -88,6 +91,13 @@ Runner::~Runner() {
 
 void Runner::RunWorkerThread(int worker_id) {
     int slot_id = worker_id;
+
+    atomic<bool> slot_ready[NB_SLOT_MAX];
+    for (int i = slot_id; i < NB_SLOT; i += nb_worker_thread) {
+        slot_ready[i] = true;
+        this->slot_ready[i] = &slot_ready[i];
+    }
+
     while (true) {
         Latency_Start(&job_total[worker_id]);
         Latency_Start(&worker_spin[worker_id]);
@@ -124,7 +134,7 @@ void Runner::RunWorkerThread(int worker_id) {
 
 void Runner::RunPrologue(Prologue prologue) {
     Latency_Start(&driver_spin);
-    while (!slot_ready[next_slot]) {
+    while (!*slot_ready[next_slot]) {
         if (shutdown) {
             return;
         }
@@ -133,7 +143,7 @@ void Runner::RunPrologue(Prologue prologue) {
 
     prologue_slots[next_slot] = prologue;
     // epilogue_slots[next_slot] = nullptr;
-    slot_ready[next_slot] = false;
+    *slot_ready[next_slot] = false;
     next_slot = (next_slot + 1) % NB_SLOT;
 }
 
