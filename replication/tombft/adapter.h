@@ -13,7 +13,7 @@ public:
     // override methods
     TOMBFTAdapter *Clone() const override;
     std::string Type() const override {
-        return "TOMBFTAdapter[" + inner.Type() + "]";
+        return "TOMBFT[" + inner.Type() + "]";
     }
     size_t SerializedSize() const override;
     void Parse(const void *buf, size_t size) override;

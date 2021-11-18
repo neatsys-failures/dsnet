@@ -18,8 +18,8 @@ public:
     // Sender should provide self identifier, receiver should determine remote identifier by some way
     // e.g., by remote address, then provide it before parsing
     // two special identifier:
-    // * "Steve" uses a default test key for signing/verifing. Used by benchmark clients/replicas.
-    // * "Alex" to be decided
+    // * "Steve" uses a default test key for signing/verifing. Used in cross-replica communication in bench.
+    // * "Alex" no sign/verify at all, omit signature field in message. Used in replica-client communication inn bench.
     SignedAdapter(Message &inner_message, std::string identifier);
     // undefined behavior: call IsVerified() before/without calling Parse()
     bool IsVerified() const {
@@ -33,6 +33,9 @@ private:
     Message &inner_message;
     std::string identifier, digest;
     bool is_verified;
+
+    void ParseNoVerify(const void *buf, size_t size);
+    void SerializeNoSign(void *buf) const;
 };
 
 }

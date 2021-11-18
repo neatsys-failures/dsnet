@@ -43,15 +43,16 @@ Message *SignedAdapter::Clone() const {
 }
 
 string SignedAdapter::Type() const {
-    return inner_message.Type();
+    return "Signed[" + inner_message.Type() + "]";
 }
 
 size_t SignedAdapter::SerializedSize() const {
-    // sign overhead: 64B signature + 16B identifier
+    // sign overhead: 64B signature (if not Alex) + 16B identifier
+    if (identifier == "Alex") {
+        return inner_message.SerializedSize() + 16;
+    }
     return inner_message.SerializedSize() + 80;
 }
-
-#ifndef DSNET_NO_SIGN
 
 void SignedAdapter::Parse(const void *buf, size_t size) {
     const char *buf_id = (const char *) buf;
@@ -64,6 +65,11 @@ void SignedAdapter::Parse(const void *buf, size_t size) {
         return;
     }
     identifier.assign(buf_id);
+    if (identifier == "Alex") {
+        ParseNoVerify(buf, size);
+        return;
+    }
+
     const secp256k1_pubkey *pubkey;
     if (identifier == "Steve") {
         pubkey = STEVE_PUBKEY;
@@ -87,6 +93,11 @@ void SignedAdapter::Parse(const void *buf, size_t size) {
 }
 
 void SignedAdapter::Serialize(void *buf) const {
+    if (identifier == "Alex") {
+        SerializeNoSign(buf);
+        return;
+    }
+
     char *buf_id = (char *)buf;
     unsigned char *buf_sig = ((unsigned char *) buf) + 16;
     unsigned char *buf_inner = ((unsigned char *) buf) + 80;
@@ -112,11 +123,9 @@ void SignedAdapter::Serialize(void *buf) const {
     ASSERT(code);
 }
 
-#else
-
-void SignedAdapter::Parse(const void *buf, size_t size) {
-    const unsigned char *buf_inner = ((const unsigned char *) buf) + 80;
-    size_t inner_size = size - 80;
+void SignedAdapter::ParseNoVerify(const void *buf, size_t size) {
+    const unsigned char *buf_inner = ((const unsigned char *) buf) + 16;
+    size_t inner_size = size - 16;
 
     unsigned char *digest = SHA256(buf_inner, inner_size, new unsigned char[32]);
     this->digest.assign((char *)digest, 32);
@@ -125,17 +134,15 @@ void SignedAdapter::Parse(const void *buf, size_t size) {
     inner_message.Parse(buf_inner, inner_size);
 }
 
-void SignedAdapter::Serialize(void *buf) const {
+void SignedAdapter::SerializeNoSign(void *buf) const {
     char *buf_id = (char *)buf;
-    unsigned char *buf_inner = ((unsigned char *) buf) + 80;
+    unsigned char *buf_inner = ((unsigned char *) buf) + 16;
     inner_message.Serialize(buf_inner);
-    size_t inner_size = inner_message.SerializedSize();
+    // size_t inner_size = inner_message.SerializedSize();
 
     memset(buf_id, 0, 16);
     ASSERT(identifier.size() < 16);
     identifier.copy(buf_id, identifier.size());
 }
-
-#endif
 
 }

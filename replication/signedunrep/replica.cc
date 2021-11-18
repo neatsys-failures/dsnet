@@ -36,7 +36,7 @@ void SignedUnrepReplica::HandleRequest(
         }
         if (msg.req().clientreqid() == entry.lastReqId) {
             PBMessage pb_m(entry.reply);
-            if (!(transport->SendMessage(this, remote, SignedAdapter(pb_m, identifier)))) {
+            if (!(transport->SendMessage(this, remote, SignedAdapter(pb_m, "Alex")))) {
                 Warning("Failed to resend reply to client");
             }
             Latency_EndType(&handle_request, 'r');
@@ -69,7 +69,7 @@ void SignedUnrepReplica::HandleRequest(
 
         // Latency_Start(&replica_epilogue);
         PBMessage pb_m(*m);
-        if (!(transport->SendMessage(this, *remote, SignedAdapter(pb_m, identifier))))
+        if (!(transport->SendMessage(this, *remote, SignedAdapter(pb_m, "Alex"))))
             Warning("Failed to send reply message");
         // Latency_End(&replica_epilogue);
     });
