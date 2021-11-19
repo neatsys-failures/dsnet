@@ -2,6 +2,7 @@
 #include "lib/transport.h"
 #include "common/replica.h"
 #include "common/runner.h"
+#include "common/log.h"
 #include "replication/tombft/message.pb.h"
 #include "replication/tombft/adapter.h"
 
@@ -18,10 +19,19 @@ public:
 
 private:
     Runner runner;
-    string identifier;
+    const string identifier;
+
+    uint32_t last_message_number;
+    uint64_t last_executed;
+    uint8_t session_number;
+
+    Log log;
+    std::unordered_map<uint64_t, proto::ReplyMessage> client_table;
 
     void HandleRequest(
         TransportAddress &remote, Request &message, TOMBFTAdapter &meta);
+
+    void ExecuteOne(Request &message);
 };
 
 

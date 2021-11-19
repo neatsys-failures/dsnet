@@ -1,6 +1,12 @@
 #include "replication/tombft/replica.h"
 
+#include "lib/message.h"
 #include "common/pbmessage.h"
+
+#define RDebug(fmt, ...) Debug("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
+#define RNotice(fmt, ...) Notice("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
+#define RWarning(fmt, ...) Warning("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
+#define RPanic(fmt, ...) Panic("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
 
 namespace dsnet {
 namespace tombft {
@@ -14,7 +20,8 @@ TOMBFTReplica::TOMBFTReplica(
     const Configuration &config, int replica_index, const string &identifier,
     int worker_thread_count, Transport *transport, AppReplica *app)
     : Replica(config, 0, replica_index, true, transport, app),
-    runner(worker_thread_count), identifier(identifier)
+    runner(worker_thread_count), identifier(identifier),
+    last_message_number(0), last_executed(0), session_number(0), log(false)
 {
     //
 }
@@ -49,7 +56,7 @@ void TOMBFTReplica::ReceiveMessage(
                 HandleRequest(*remote, *message->mutable_request(), *tom);
             };
         default:
-            Panic("Unexpected message case: %d", message->get_case());
+            RPanic("Unexpected message case: %d", message->get_case());
         }
 
         return nullptr;
@@ -59,9 +66,83 @@ void TOMBFTReplica::ReceiveMessage(
 void TOMBFTReplica::HandleRequest(
     TransportAddress &remote, Request &message, TOMBFTAdapter &meta)
 {
-    //
+    if (session_number == 0) {
+        session_number = meta.SessionNumber();
+    }
+    if (last_message_number == 0) {
+        last_message_number = meta.MessageNumber() - 1;
+    }
+
+    if (session_number != meta.SessionNumber()) {
+        RWarning("Session changed: %u -> %u", session_number, meta.SessionNumber());
+        NOT_IMPLEMENTED();
+        return;
+    }
+    if (meta.MessageNumber() <= last_message_number) {
+        RWarning("Ignore duplicated request: message number = %u", meta.MessageNumber());
+        return;
+    }
+    if (meta.MessageNumber() > last_message_number + 1) {
+        RWarning("Gap detected: %u..<%u", last_message_number + 1, meta.MessageNumber());
+        NOT_IMPLEMENTED();
+        return;
+    }
+
+    last_message_number += 1;
+    // TODO log
+    ExecuteOne(message);
 }
 
+struct TOMEntry: public LogEntry {
+    TOMEntry(viewstamp_t viewstamp, LogEntryState state, const Request &request)
+        : LogEntry(viewstamp, state, request)
+    {
+    }
+};
+
+struct ExecuteContext {
+    string result;
+    void set_reply(const string &result) {
+        this->result = result;
+    }
+};
+
+void TOMBFTReplica::ExecuteOne(Request &request_message) {
+    last_executed += 1;
+    // TODO
+    log.Append(new TOMEntry(viewstamp_t(0, last_executed), LOG_STATE_EXECUTED, request_message));
+
+    auto message = unique_ptr<proto::Message>(new proto::Message);
+    if (client_table.count(request_message.clientid())) {
+        if (client_table[request_message.clientid()].client_request() > request_message.clientreqid()) {
+            return;
+        }
+        if (client_table[request_message.clientid()].client_request() == request_message.clientreqid()) {
+            *message->mutable_reply() = client_table[request_message.clientid()];
+        }
+    }
+    if (!message->has_reply()) {
+        ExecuteContext ctx;
+        Execute(last_executed, request_message, ctx);
+        auto reply = message->mutable_reply();
+        reply->set_client_request(request_message.clientreqid());
+        reply->set_result(ctx.result);
+        reply->set_replica_index(replicaIdx);
+        client_table[request_message.clientid()] = *reply;
+    }
+
+    runner.RunEpilogue([
+        this,
+        client_address = request_message.clientaddr(),
+        escaping_message = message.release()
+    ]() {
+        auto message = unique_ptr<proto::Message>(escaping_message);
+        // reuse `remote` from `HandleRequest` when possible?
+        auto remote = unique_ptr<TransportAddress>(
+            transport->LookupAddress(ReplicaAddress(client_address)));
+        transport->SendMessage(this, *remote, PBAdapter(*message));
+    });
+}
 
 }
 }
