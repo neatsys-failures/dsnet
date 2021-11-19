@@ -24,12 +24,14 @@ TOMBFTReplica::TOMBFTReplica(
     runner(worker_thread_count), identifier(identifier),
     last_message_number(0), last_executed(0), session_number(0), log(false)
 {
-    //
+    transport->ListenOnMulticast(this, config);
+    // RDebug("System start");
 }
 
 void TOMBFTReplica::ReceiveMessage(
     const TransportAddress &remote, void *buf, size_t size) 
 {
+    // RDebug("Get packet");
     runner.RunPrologue([
         this,
         escaping_remote = remote.clone(),
@@ -141,6 +143,7 @@ void TOMBFTReplica::ExecuteOne(Request &request_message) {
     ]() {
         auto message = unique_ptr<proto::Message>(escaping_message);
         // reuse `remote` from `HandleRequest` when possible?
+        RDebug("remote = %s", ReplicaAddress(client_address).Serialize().c_str());
         auto remote = unique_ptr<TransportAddress>(
             transport->LookupAddress(ReplicaAddress(client_address)));
         PBAdapter pb_layer(*message);

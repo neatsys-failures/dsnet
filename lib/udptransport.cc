@@ -328,6 +328,12 @@ UDPTransport::ListenOnMulticast(TransportReceiver *src,
         PWarning("Failed to set SO_REUSEADDR on multicast socket");
     }
 
+    if (setsockopt(fd, SOL_SOCKET,
+                SO_NO_CHECK, (char *)&n, sizeof(n)) < 0) {
+        PWarning("Failed to set SO_NO_CHECK on multicast socket");
+    }
+
+
     // Increase buffer size
     n = SOCKET_BUF_SIZE;
     if (setsockopt(fd, SOL_SOCKET,

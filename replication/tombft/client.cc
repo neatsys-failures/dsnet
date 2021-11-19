@@ -5,6 +5,7 @@
 #include "lib/transport.h"
 #include "common/pbmessage.h"
 #include "common/signedadapter.h"
+#include "replication/tombft/adapter.h"
 
 namespace dsnet {
 namespace tombft {
@@ -61,7 +62,8 @@ TOMBFTClient::SendRequest()
     reqMsg->set_clientaddr(node_addr_->Serialize());
 
     PBMessage pb_m(m);
-    transport->SendMessageToAll(this, SignedAdapter(pb_m, identifier));
+    SignedAdapter signed_layer(pb_m, identifier);
+    transport->SendMessageToMulticast(this, TOMBFTAdapter(signed_layer, true));
 
     requestTimeout->Reset();
 }
@@ -110,12 +112,24 @@ TOMBFTClient::HandleReply(
     const TransportAddress &remote, const proto::ReplyMessage &msg)
 {
     if (pendingRequest == NULL) {
-        Warning("Received reply when no request was pending");
+        // Warning("Received reply when no request was pending");
     	return;
     }
 
     if (msg.client_request() != pendingRequest->clientreqid) {
 	    return;
+    }
+
+    pendingRequest->received[msg.replica_index()] = true;
+    int count = 0;
+    for (int i = 0; i < config.n; i += 1) {
+        if (pendingRequest->received[i]) {
+            count += 1;
+        }
+    }
+    Debug("Packet count = %d", count);
+    if (count < 2 * config.f + 1) {
+        return;
     }
 
     Debug("Client received reply");

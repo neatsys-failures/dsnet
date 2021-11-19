@@ -29,8 +29,14 @@ protected:
         uint64_t clientid;
         uint64_t clientreqid;
         continuation_t continuation;
+        bool received[16];
         inline PendingRequest(string request, uint64_t clientreqid, continuation_t continuation)
-            : request(request), clientreqid(clientreqid), continuation(continuation) { }
+            : request(request), clientreqid(clientreqid), continuation(continuation) 
+        { 
+            for (int i = 0; i < 16; i += 1) {
+                received[i] = false;
+            }
+        }
     };
     PendingRequest *pendingRequest;
     PendingRequest *pendingUnloggedRequest;

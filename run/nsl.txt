@@ -3,3 +3,4 @@ replica 11.0.0.1:1102
 replica 11.0.0.2:1102
 replica 11.0.0.3:1102
 replica 11.0.0.4:1102
+multicast 11.0.0.255:22222
