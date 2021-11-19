@@ -56,7 +56,6 @@ void TOMBFTReplica::ReceiveMessage(
     });
 }
 
-
 void TOMBFTReplica::HandleRequest(
     TransportAddress &remote, Request &message, TOMBFTAdapter &meta)
 {

@@ -2,10 +2,6 @@
 #include "lib/ctpl.h"
 #include <functional>
 #include <thread>
-#include <condition_variable>
-#include <queue>
-#include <deque>
-#include <mutex>
 
 namespace dsnet {
 
@@ -23,7 +19,7 @@ namespace dsnet {
 // keeps a upper bound of packets in prologue or solo stages.
 class Runner {
 public:
-    Runner(int nb_worker_thread);
+    Runner(int worker_thread_count);
     ~Runner();
 
     using Solo = std::function<void ()>;
@@ -32,20 +28,22 @@ public:
     using Epilogue = std::function<void ()>;
     void RunEpilogue(Epilogue epilogue);
 private:
-    int nb_worker_thread;
+    int worker_thread_count;
     std::thread worker_threads[128];
+    std::thread solo_thread;
     std::atomic<bool> shutdown;
 
-#define NB_SLOT (nb_worker_thread * 3)
-#define NB_SLOT_MAX 1000
-    Prologue prologue_slots[NB_SLOT_MAX];
-    Epilogue epilogue_slots[NB_SLOT_MAX];
-    std::atomic<bool> slot_ready[NB_SLOT_MAX];
-    std::atomic<int> solo_slot;
-
-    int next_slot;
+#define SLOT_COUNT (worker_thread_count * 4)
+#define SLOT_COUNT_MAX 1000
+    Prologue prologue_slots[SLOT_COUNT_MAX];
+    Epilogue epilogue_slots[SLOT_COUNT_MAX];
+    Solo solo_slots[SLOT_COUNT_MAX];
+    std::atomic<bool> slot_ready[SLOT_COUNT_MAX];
+    std::atomic<bool> pending_solo[SLOT_COUNT_MAX], pending_epilogue[SLOT_COUNT_MAX];
+    int solo_id, next_slot;
 
     void RunWorkerThread(int worker_id);
+    void RunSoloThread();
 };
 
 }
