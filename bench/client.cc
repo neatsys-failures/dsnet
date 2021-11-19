@@ -41,6 +41,7 @@
 #include "replication/unreplicated/client.h"
 #include "replication/nopaxos/client.h"
 #include "replication/signedunrep/client.h"
+#include "replication/tombft/client.h"
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -84,7 +85,8 @@ int main(int argc, char **argv)
         PROTO_VR,
         PROTO_FASTPAXOS,
         PROTO_SPEC,
-        PROTO_NOPAXOS
+        PROTO_NOPAXOS,
+        PROTO_TOMBFT
     } proto = PROTO_UNKNOWN;
 
     enum
@@ -152,6 +154,8 @@ int main(int argc, char **argv)
                 proto = PROTO_FASTPAXOS;
             } else if (strcasecmp(optarg, "nopaxos") == 0) {
                 proto = PROTO_NOPAXOS;
+            } else if (strcasecmp(optarg, "tombft") == 0) {
+                proto = PROTO_TOMBFT;
             }
             else {
                 fprintf(stderr, "unknown mode '%s'\n", optarg);
@@ -279,6 +283,10 @@ int main(int argc, char **argv)
 
         case PROTO_NOPAXOS:
             client = new dsnet::nopaxos::NOPaxosClient(config, addr, transport);
+            break;
+
+        case PROTO_TOMBFT:
+            client = new dsnet::tombft::TOMBFTClient(config, addr, "Alex", transport);
             break;
 
         default:

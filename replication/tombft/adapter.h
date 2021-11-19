@@ -8,7 +8,7 @@ class TOMBFTAdapter: public Message {
 public:
     // `multicast` is only considered during serialization
     // parsing determine multicast by message content
-    TOMBFTAdapter(Message &inner, const std::string &identifier, bool multicast);
+    TOMBFTAdapter(Message &inner, bool multicast);
 
     // override methods
     TOMBFTAdapter *Clone() const override;
@@ -35,7 +35,6 @@ public:
     }
 private:
     Message &inner;
-    std::string identifier;
     bool is_multicast, is_verified;
     uint32_t message_number;
     uint8_t session_number;

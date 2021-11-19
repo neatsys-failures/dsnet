@@ -1,6 +1,7 @@
 #include "replication/tombft/replica.h"
 
 #include "lib/message.h"
+#include "common/signedadapter.h"
 #include "common/pbmessage.h"
 
 #define RDebug(fmt, ...) Debug("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
@@ -36,10 +37,12 @@ void TOMBFTReplica::ReceiveMessage(
     ]() -> Runner::Solo {
         auto message = unique_ptr<proto::Message>(new proto::Message);
         PBAdapter pb(*message);
-        auto tom = unique_ptr<TOMBFTAdapter>(new TOMBFTAdapter(pb, "", false));
+        auto security = unique_ptr<SignedAdapter>(new SignedAdapter(pb, ""));  // TODO
+        auto tom = unique_ptr<TOMBFTAdapter>(new TOMBFTAdapter(*security, false));
         tom->Parse(owned_buffer.data(), owned_buffer.size());
-        if (!tom->IsVerified()) {
+        if (!tom->IsVerified() || !security->IsVerified()) {
             //
+            NOT_IMPLEMENTED();
             return nullptr;
         }
         switch (message->get_case()) {
@@ -140,7 +143,8 @@ void TOMBFTReplica::ExecuteOne(Request &request_message) {
         // reuse `remote` from `HandleRequest` when possible?
         auto remote = unique_ptr<TransportAddress>(
             transport->LookupAddress(ReplicaAddress(client_address)));
-        transport->SendMessage(this, *remote, PBAdapter(*message));
+        PBAdapter pb_layer(*message);
+        transport->SendMessage(this, *remote, SignedAdapter(pb_layer, "Alex"));
     });
 }
 

@@ -105,7 +105,8 @@ static __attribute__((unused)) signed char _Message_FileDebugFlag = -1;
                         Panic("Assertion `%s' failed", #pred);  \
         } while (0)
 #else
-#define Assert(pred)
+// Guangda: surppress compiler warning when NASSERT is set
+#define Assert(pred) (void)(pred)
 #endif
 
 static inline bool

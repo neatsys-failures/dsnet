@@ -1,20 +1,18 @@
-#include "replication/signedunrep/client.h"
+#include "replication/tombft/client.h"
 
 #include "lib/message.h"
 #include "lib/assert.h"
 #include "lib/transport.h"
-#include "common/client.h"
 #include "common/pbmessage.h"
 #include "common/signedadapter.h"
-#include "replication/signedunrep/signedunrep-proto.pb.h"
 
 namespace dsnet {
-namespace signedunrep {
+namespace tombft {
 
 using namespace proto;
 using std::string;
 
-SignedUnrepClient::SignedUnrepClient(
+TOMBFTClient::TOMBFTClient(
     const Configuration &config, 
     const ReplicaAddress &addr, const string identifier,
     Transport *transport, uint64_t clientid)
@@ -28,7 +26,7 @@ SignedUnrepClient::SignedUnrepClient(
 	});
 }
 
-SignedUnrepClient::~SignedUnrepClient()
+TOMBFTClient::~TOMBFTClient()
 {
     if (pendingRequest) {
         delete pendingRequest;
@@ -39,7 +37,7 @@ SignedUnrepClient::~SignedUnrepClient()
 }
 
 void
-SignedUnrepClient::Invoke(const string &request, continuation_t continuation)
+TOMBFTClient::Invoke(const string &request, continuation_t continuation)
 {
     // XXX Can only handle one pending request for now
     if (pendingRequest != NULL) {
@@ -53,29 +51,30 @@ SignedUnrepClient::Invoke(const string &request, continuation_t continuation)
 }
 
 void
-SignedUnrepClient::SendRequest()
+TOMBFTClient::SendRequest()
 {
-    ToReplicaMessage m;
-    RequestMessage *reqMsg = m.mutable_request();
-    reqMsg->mutable_req()->set_op(pendingRequest->request);
-    reqMsg->mutable_req()->set_clientid(clientid);
-    reqMsg->mutable_req()->set_clientreqid(lastReqId);
+    proto::Message m;
+    Request *reqMsg = m.mutable_request();
+    reqMsg->set_op(pendingRequest->request);
+    reqMsg->set_clientid(clientid);
+    reqMsg->set_clientreqid(lastReqId);
+    reqMsg->set_clientaddr(node_addr_->Serialize());
 
     PBMessage pb_m(m);
-    transport->SendMessageToReplica(this, 0, SignedAdapter(pb_m, identifier));
+    transport->SendMessageToAll(this, SignedAdapter(pb_m, identifier));
 
     requestTimeout->Reset();
 }
 
 void
-SignedUnrepClient::ResendRequest()
+TOMBFTClient::ResendRequest()
 {
     Warning("Timeout, resending request for req id %lu", lastReqId);
     SendRequest();
 }
 
 void
-SignedUnrepClient::InvokeUnlogged(
+TOMBFTClient::InvokeUnlogged(
     int replicaIdx, const string &request,
     continuation_t continuation, timeout_continuation_t timeoutContinuation,
     uint32_t timeout)
@@ -84,40 +83,39 @@ SignedUnrepClient::InvokeUnlogged(
 }
 
 void
-SignedUnrepClient::ReceiveMessage(
+TOMBFTClient::ReceiveMessage(
     const TransportAddress &remote, void *buf, size_t size)
 {
-    static ToClientMessage client_msg;
+    static proto::Message client_msg;
     static PBMessage m(client_msg);
     static SignedAdapter signed_adapter(m, "");
 
     signed_adapter.Parse(buf, size);
     ASSERT(signed_adapter.IsVerified());
 
-    switch (client_msg.msg_case()) {
-        case ToClientMessage::MsgCase::kReply:
+    switch (client_msg.get_case()) {
+        case proto::Message::GetCase::kReply:
             HandleReply(remote, client_msg.reply());
             break;
-        case ToClientMessage::MsgCase::kUnloggedReply:
-            HandleUnloggedReply(remote, client_msg.unlogged_reply());
-            break;
+        // case ToClientMessage::MsgCase::kUnloggedReply:
+        //     HandleUnloggedReply(remote, client_msg.unlogged_reply());
+        //     break;
         default:
-            Panic("Received unexpected message type: %u",
-                    client_msg.msg_case());
+            Panic("Received unexpected message type: %u", client_msg.get_case());
     }
 }
 
 void
-SignedUnrepClient::HandleReply(
+TOMBFTClient::HandleReply(
     const TransportAddress &remote, const proto::ReplyMessage &msg)
 {
     if (pendingRequest == NULL) {
         Warning("Received reply when no request was pending");
-	return;
+    	return;
     }
 
-    if (msg.req().clientreqid() != pendingRequest->clientreqid) {
-	return;
+    if (msg.client_request() != pendingRequest->clientreqid) {
+	    return;
     }
 
     Debug("Client received reply");
@@ -127,16 +125,16 @@ SignedUnrepClient::HandleReply(
     PendingRequest *req = pendingRequest;
     pendingRequest = NULL;
 
-    req->continuation(req->request, msg.reply());
+    req->continuation(req->request, msg.result());
     delete req;
 }
 
-void
-SignedUnrepClient::HandleUnloggedReply(
-    const TransportAddress &remote, const proto::UnloggedReplyMessage &msg)
-{
-    NOT_REACHABLE();
-}
+// void
+// SignedUnrepClient::HandleUnloggedReply(
+//     const TransportAddress &remote, const proto::UnloggedReplyMessage &msg)
+// {
+//     NOT_REACHABLE();
+// }
 
 } 
 } 

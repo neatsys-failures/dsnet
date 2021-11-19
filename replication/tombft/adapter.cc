@@ -2,6 +2,9 @@
 
 #include <cstring>
 #include <endian.h>
+#include <openssl/sha.h>
+#include <secp256k1.h>
+#include "lib/assert.h"
 
 namespace dsnet {
 namespace tombft {
@@ -28,13 +31,34 @@ struct __attribute__((packed)) Layout {
     };
 };
 
-TOMBFTAdapter::TOMBFTAdapter(Message &inner, const string &identifier, bool multicast)
-    : inner(inner), identifier(identifier), is_multicast(multicast)
+static const unsigned char SWITCH_SECKEY[] = {
+    0x73, 0x77, 0x74, 0x69, 0x63, 0x68, 0x00, 0x00,  // print "switch" as C string
+    0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+    0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff,
+    0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+};
+static __thread const secp256k1_pubkey *SWITCH_PUBKEY;
+static __thread secp256k1_context *PROTO_CTX_VERIFY = nullptr;
+static __thread secp256k1_ecdsa_signature REPLACED_SIG;
+
+TOMBFTAdapter::TOMBFTAdapter(Message &inner, bool multicast)
+    : inner(inner), is_multicast(multicast)
 {
+    if (PROTO_CTX_VERIFY != nullptr) {
+        return;
+    }
+    PROTO_CTX_VERIFY = secp256k1_context_create(SECP256K1_CONTEXT_VERIFY);
+    SWITCH_PUBKEY = new secp256k1_pubkey;
+    secp256k1_context *sign_ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN);
+    int code = secp256k1_ec_pubkey_create(sign_ctx, (secp256k1_pubkey *) SWITCH_PUBKEY, SWITCH_SECKEY);
+    ASSERT(code);
+    code = secp256k1_ecdsa_sign(sign_ctx, &REPLACED_SIG, SWITCH_SECKEY, SWITCH_SECKEY, nullptr, nullptr);
+    ASSERT(code);
+    secp256k1_context_destroy(sign_ctx);
 }
 
 TOMBFTAdapter *TOMBFTAdapter::Clone() const {
-    TOMBFTAdapter *adapter = new TOMBFTAdapter(inner, identifier, is_multicast);
+    TOMBFTAdapter *adapter = new TOMBFTAdapter(inner, is_multicast);
     adapter->is_verified = is_verified;
     adapter->message_number = message_number;
     adapter->session_number = session_number;
@@ -58,7 +82,7 @@ void TOMBFTAdapter::Serialize(void *buf) const {
     }
 
     inner.Serialize(layout->multicast.inner_buf);
-    // TODO digest
+    SHA256(layout->multicast.inner_buf, inner.SerializedSize(), layout->digest);
     layout->multicast._unused1 = 0;
     layout->multicast._unused2 = 0;
     layout->multicast.session_number = 0;
@@ -77,10 +101,32 @@ void TOMBFTAdapter::Parse(const void *buf, size_t size) {
         return;
     }
 
-    // TODO verify
-    is_verified = true;
+    unsigned char digest[32];
+    SHA256(layout->multicast.inner_buf, size - sizeof(layout->multicast), digest);
+    secp256k1_context *ctx = PROTO_CTX_VERIFY;
+    secp256k1_ecdsa_signature sig, *sig_p = &sig;
+    if (!secp256k1_ecdsa_signature_parse_compact(ctx, &sig, layout->multicast.signature)) {
+#ifdef DSNET_TOM_FPGA_DEMO
+        sig_p = &REPLACED_SIG;
+#else
+        is_verified = false;
+        return;
+#endif
+    }
+
+#ifdef DSNET_TOM_FPGA_DEMO
+    is_verified = secp256k1_ecdsa_verify(ctx, sig_p, digest, SWITCH_PUBKEY) || layout->multicast.signature[0] >= 0x30;
+#else
+    is_verified = secp256k1_ecdsa_verify(ctx, sig_p, digest, SWITCH_PUBKEY);
+#endif
+    if (!is_verified) {
+        return;
+    }
     session_number = layout->multicast.session_number;
     message_number = be32toh(layout->multicast.message_number);
+    if (message_number == 0) {
+        Panic("TOM message not sequenced");
+    }
     inner.Parse(layout->multicast.inner_buf, size - sizeof(layout->multicast));
 }
 

@@ -36,6 +36,7 @@
 #include "replication/unreplicated/replica.h"
 #include "replication/nopaxos/replica.h"
 #include "replication/signedunrep/replica.h"
+#include "replication/tombft/replica.h"
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -71,7 +72,7 @@ main(int argc, char **argv)
     double reorderRate = 0.0;
     int batchSize = 1;
     bool recover = false;
-    int nb_worker_thread = 8;
+    int worker_thread_count = 8;
 
     dsnet::AppReplica *nullApp = new dsnet::AppReplica();
 
@@ -83,7 +84,8 @@ main(int argc, char **argv)
         PROTO_VR,
         PROTO_FASTPAXOS,
         PROTO_SPEC,
-        PROTO_NOPAXOS
+        PROTO_NOPAXOS,
+        PROTO_TOMBFT
     } proto = PROTO_UNKNOWN;
 
     // Parse arguments
@@ -145,6 +147,8 @@ main(int argc, char **argv)
                 proto = PROTO_FASTPAXOS;
             } else if (strcasecmp(optarg, "nopaxos") == 0) {
                 proto = PROTO_NOPAXOS;
+            } else if (strcasecmp(optarg, "tombft") == 0) {
+                proto = PROTO_TOMBFT;
             } else {
                 fprintf(stderr, "unknown mode '%s'\n", optarg);
                 Usage(argv[0]);
@@ -170,8 +174,8 @@ main(int argc, char **argv)
         
         case 'w': {
             char *strtod_ptr;
-            nb_worker_thread = strtod(optarg, &strtod_ptr);
-            if (*optarg == '\0' || *strtod_ptr != '\0' || nb_worker_thread <= 0) {
+            worker_thread_count = strtod(optarg, &strtod_ptr);
+            if (*optarg == '\0' || *strtod_ptr != '\0' || worker_thread_count <= 0) {
                 Usage(argv[0]);
             }
             break;
@@ -226,7 +230,7 @@ main(int argc, char **argv)
 
     case PROTO_SIGNEDUNREP:
         replica = new dsnet::signedunrep::SignedUnrepReplica(
-            config, "Steve", nb_worker_thread, &transport, nullApp);
+            config, "Steve", worker_thread_count, &transport, nullApp);
         break;
 
     case PROTO_VR:
@@ -242,6 +246,11 @@ main(int argc, char **argv)
     case PROTO_NOPAXOS:
         replica = new dsnet::nopaxos::NOPaxosReplica(
             config, index, !recover, &transport, nullApp);
+        break;
+
+    case PROTO_TOMBFT:
+        replica = new dsnet::tombft::TOMBFTReplica(
+            config, index, "Steve", worker_thread_count, &transport, nullApp);
         break;
 
     default:

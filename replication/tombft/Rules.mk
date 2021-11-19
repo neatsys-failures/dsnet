@@ -1,7 +1,7 @@
 d := $(dir $(lastword $(MAKEFILE_LIST)))
 
 SRCS += $(addprefix $(d), \
-	replica.cc adapter.cc)
+	replica.cc client.cc adapter.cc)
 
 PROTOS += $(addprefix $(d), \
 	    message.proto)
