@@ -1,0 +1,17 @@
+syntax = "proto3";
+package dsnet.tombft.proto;
+
+import "common/request.proto";
+
+message Message {
+    oneof get {
+        dsnet.Request request = 1;
+        ReplyMessage reply = 2;
+    }
+}
+
+message ReplyMessage {
+    uint32 client_request = 1;
+    bytes result = 2;
+    int32 replica_index = 3;
+}

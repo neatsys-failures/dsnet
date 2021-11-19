@@ -1,6 +1,9 @@
 #pragma once
+#include "lib/transport.h"
 #include "common/replica.h"
 #include "common/runner.h"
+#include "replication/tombft/message.pb.h"
+#include "replication/tombft/adapter.h"
 
 namespace dsnet {
 namespace tombft {
@@ -16,7 +19,11 @@ public:
 private:
     Runner runner;
     string identifier;
+
+    void HandleRequest(
+        TransportAddress &remote, Request &message, TOMBFTAdapter &meta);
 };
+
 
 }
 }
