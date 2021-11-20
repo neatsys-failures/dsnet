@@ -33,7 +33,7 @@ private:
     std::thread solo_thread;
     std::atomic<bool> shutdown;
 
-#define SLOT_COUNT (worker_thread_count * 4)
+#define SLOT_COUNT (worker_thread_count * 32)
 #define SLOT_COUNT_MAX 1000
     Prologue prologue_slots[SLOT_COUNT_MAX];
     Epilogue epilogue_slots[SLOT_COUNT_MAX];

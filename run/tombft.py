@@ -22,20 +22,39 @@ node = [
     pyrem.host.RemoteHost('nsl-node4'),
     pyrem.host.RemoteHost('nsl-node5'),
 ]
-# node[0].run([
-#     'rsync', '-a', 
-#     '--exclude', '.obj', 
-#     '--exclude', 'bench/client',
-#     '--exclude', 'bench/replica',
-#     local_dir, f'nsl-node1:' + proj_dir[:-1]
-# ]).start(wait=True)
-# rval = node[1].run(['make', '-j', '64', '-C', '/home/cowsay/dsnet', 'bench/client', 'bench/replica']).start(wait=True)
-# if rval['retcode'] != 0:
-#     sys.exit(1)
-# node[1].run([
-#     'rsync', proj_dir + 'bench/client', f'nsl-node5.d1:{proj_dir}' + 'bench/client', 
-# ]).start(wait=True)
 
+node[0].run([
+    'rsync', '-a', 
+    '--exclude', '.obj', 
+    '--exclude', 'bench/client',
+    '--exclude', 'bench/replica',
+    local_dir, f'nsl-node1:' + proj_dir[:-1]
+]).start(wait=True)
+rval = node[1].run(['make', '-j', '64', '-C', '/home/cowsay/dsnet', 'bench/client', 'bench/replica']).start(wait=True)
+
+rsync_tasks = []
+for node_index in (2, 3, 4, 5):
+    rsync_tasks += [
+        node[1].run([
+            'rsync', 
+            proj_dir + 'bench/client',
+            f'nsl-node{node_index}.d1:{proj_dir}/bench/client', 
+        ]),
+        node[1].run([
+            'rsync', 
+            proj_dir + 'bench/replica',
+            f'nsl-node{node_index}.d1:{proj_dir}/bench/replica', 
+        ]),
+        node[1].run([
+            'rsync', 
+            proj_dir + 'run/nsl.txt',
+            f'nsl-node{node_index}.d1:{proj_dir}/run/nsl.txt', 
+        ]),
+    ]
+for task in rsync_tasks:
+    task.start()
+for task in rsync_tasks:
+    task.wait()
 
 def replica_cmd(index):
     return [
@@ -44,7 +63,7 @@ def replica_cmd(index):
         '-c', proj_dir + 'run/nsl.txt',
         '-m', 'tombft',
         '-i', f'{index}',
-        '-w', '24',
+        '-w', '16',
     ]
 client_cmd = [
     'timeout', f'{duration + 5}',
@@ -53,21 +72,30 @@ client_cmd = [
     '-m', 'tombft',
     '-h', '11.0.0.101',
     '-u', f'{duration}',
-    '-t', '6',
+    '-t', '8',
 ]
 
 replica_task = [None] * 4
 for i in range(4):
-    replica_task[i] = node[i + 1].run(replica_cmd(i), kill_remote=False, quiet=i != 0)
+    # if i == 1: continue
+    replica_task[i] = node[i + 1].run(replica_cmd(i), kill_remote=False, return_output=True)
     replica_task[i].start()
 client_task = [
     node[5].run(client_cmd, return_output=True)
-    for _ in range(14)
+    for _ in range(10)
 ]
+print('Start')
 pyrem.task.Parallel(client_task).start(wait=True)
-# replica_task.wait()
+
 for i in range(4):
+    # if i == 1: continue
     replica_task[i].wait()
+    output = replica_task[i].return_values['stderr'].decode()
+    if re.search(f'Terminating on SIGTERM/SIGINT$', output, re.MULTILINE) is None:
+        print(f'Replica {i} not finish normally')
+        sys.exit(1)
+    with open(pathlib.Path() / 'logs' / f'replica-{i}.txt', 'w') as log_file:
+        log_file.write(output)
 
 throughput_sum = 0
 median_latency_max = 0

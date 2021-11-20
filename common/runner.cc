@@ -7,6 +7,8 @@
 
 namespace dsnet {
 
+static int cpus[] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,-1};
+
 static void SetThreadAffinity(pthread_t thread, int core_id) {
     cpu_set_t mask;
     CPU_ZERO(&mask);
@@ -24,8 +26,8 @@ using std::unique_lock;
 using std::mutex;
 using std::atomic;
 
-static Latency_t worker_spin[128], solo_spin[128], job_total[128];
-static Latency_t driver_spin, solo_idle;
+static Latency_t worker_spin[128], solo_spin[128], prologue_work[128];
+static Latency_t driver_spin, solo_idle, solo_work;
 
 Runner::Runner(int worker_thread_count) 
     : worker_thread_count(worker_thread_count), shutdown(false), solo_id(0), next_slot(0)
@@ -36,10 +38,11 @@ Runner::Runner(int worker_thread_count)
     for (int i = 0; i < worker_thread_count; i += 1) {
         _Latency_Init(&worker_spin[i], "");
         _Latency_Init(&solo_spin[i], "");
-        _Latency_Init(&job_total[i], "");
+        _Latency_Init(&prologue_work[i], "");
     }
     _Latency_Init(&driver_spin, "driver_spin");
     _Latency_Init(&solo_idle, "solo_idle");
+    _Latency_Init(&solo_work, "solo_work");
 
     for (int i = 0; i < SLOT_COUNT; i += 1) {
         slot_ready[i] = true;
@@ -55,39 +58,37 @@ Runner::Runner(int worker_thread_count)
         RunSoloThread();
     });
 
-    SetThreadAffinity(pthread_self(), 0);
-    SetThreadAffinity(solo_thread.native_handle(), 1);
-    int cpu = 1;
+    SetThreadAffinity(pthread_self(), cpus[0]);
+    SetThreadAffinity(solo_thread.native_handle(), cpus[1]);
+    int cpu_i = 1;
     for (int i = 0; i < worker_thread_count; i += 1) {
-        cpu += 1;
-        while (cpu == 15 || cpu == 32 || cpu == 33) {
-            cpu += 1;
-        }
-        if (cpu == 64) {
+        cpu_i += 1;
+        if (cpus[cpu_i] == -1) {
             Panic("Too many worker threads");
         }
-        SetThreadAffinity(worker_threads[i].native_handle(), cpu);
+        SetThreadAffinity(worker_threads[i].native_handle(), cpus[cpu_i]);
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
 }
 
 Runner::~Runner() {
-    Latency_t sum_worker_spin, sum_solo_spin, sum_job_total;
+    Latency_t sum_worker_spin, sum_solo_spin, sum_prologue_work;
     _Latency_Init(&sum_worker_spin, "worker_spin");
     _Latency_Init(&sum_solo_spin, "solo_spin");
-    _Latency_Init(&sum_job_total, "job_total");
+    _Latency_Init(&sum_prologue_work, "prologue_work");
     for (int i = 0; i < worker_thread_count; i += 1) {
         Latency_Sum(&sum_worker_spin, &worker_spin[i]);
         Latency_Sum(&sum_solo_spin, &solo_spin[i]);
-        Latency_Sum(&sum_job_total, &job_total[i]);
+        Latency_Sum(&sum_prologue_work, &prologue_work[i]);
     }
 
     Latency_Dump(&driver_spin);
     Latency_Dump(&solo_idle);
+    Latency_Dump(&solo_work);
     Latency_Dump(&sum_worker_spin);
     Latency_Dump(&sum_solo_spin);
-    Latency_Dump(&sum_job_total);
+    Latency_Dump(&sum_prologue_work);
 
     shutdown = true;
     for (int i = 0; i < worker_thread_count; i += 1) {
@@ -121,16 +122,12 @@ void Runner::RunWorkerThread(int worker_id) {
             continue;
         }
 
-        // Latency_Start(&worker_spin[worker_id]);
-        // while (slot_ready[slot_id]) {
-        //     if (shutdown) {
-        //         return;
-        //     }
-        // }
         // Latency_End(&worker_spin[worker_id]);
+        Latency_Start(&prologue_work[worker_id]);
         Solo solo = prologue_slots[slot_id]();
         prologue_slots[slot_id] = nullptr;
         slot_ready[slot_id] = true;
+        Latency_End(&prologue_work[worker_id]);
 
         Latency_Start(&solo_spin[worker_id]);
         while (pending_solo[slot_id]) {  // previous solo still in slot
@@ -143,22 +140,6 @@ void Runner::RunWorkerThread(int worker_id) {
         solo_slots[slot_id] = solo;
         pending_solo[slot_id] = true;
 
-        // if (solo) {
-        //     // TODO order
-        //     while (solo_slot != slot_id) {
-        //         if (shutdown) {
-        //             return;
-        //         }
-        //     }
-        //     solo();
-        //     solo_slot = (solo_slot + 1) % NB_SLOT;
-        //     if (epilogue_slots[slot_id]) {
-        //         epilogue_slots[slot_id]();
-        //         epilogue_slots[slot_id] = nullptr;
-        //     }
-        // }
-        // slot_id = (slot_id + nb_worker_thread) % NB_SLOT;
-        // Latency_End(&job_total[worker_id]);
     }
 }
 
@@ -172,11 +153,13 @@ void Runner::RunSoloThread() {
             }
         }
         Latency_End(&solo_idle);
+        Latency_Start(&solo_work);
         if (solo_slots[solo_id]) {
             solo_slots[solo_id]();
         }
         solo_slots[solo_id] = nullptr;
         pending_solo[solo_id] = false;
+        Latency_End(&solo_work);
     }
 }
 
