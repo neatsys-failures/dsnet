@@ -33,13 +33,23 @@ private:
     std::thread solo_thread;
     std::atomic<bool> shutdown;
 
-#define SLOT_COUNT (worker_thread_count * 32)
+#define SLOT_COUNT (worker_thread_count * 16)
 #define SLOT_COUNT_MAX 1000
     Prologue prologue_slots[SLOT_COUNT_MAX];
     Epilogue epilogue_slots[SLOT_COUNT_MAX];
     Solo solo_slots[SLOT_COUNT_MAX];
-    std::atomic<bool> slot_ready[SLOT_COUNT_MAX];
-    std::atomic<bool> pending_solo[SLOT_COUNT_MAX], pending_epilogue[SLOT_COUNT_MAX];
+    std::atomic<int> solo_next_slot[SLOT_COUNT_MAX];
+
+    enum SLOT_STATE {
+        SLOT_AVAIL = 0x00,
+        SLOT_PENDING_PROLOGUE = 0x01,
+        SLOT_PENDING_SOLO = 0x02,
+
+        SLOT_HAS_NEXT = 0x04,
+        // assert: only pending epilogue when not pending solo
+        SLOT_PENDING_EPILOGUE = 0x08,
+    };
+    std::atomic<uint8_t> slot_state[SLOT_COUNT_MAX];
     int solo_id, next_slot;
 
     void RunWorkerThread(int worker_id);

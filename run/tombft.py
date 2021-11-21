@@ -1,5 +1,6 @@
 import re
 import pathlib
+import shutil
 import sys
 import pyrem.host
 import pyrem.task
@@ -12,7 +13,12 @@ for line in open(pathlib.Path() / 'Makefile'):
 
 proj_dir = '/home/cowsay/dsnet/'
 local_dir = '/ws/dsnet/'
+log_dir = pathlib.Path() / 'logs'
 duration = 10
+
+shutil.rmtree(log_dir, ignore_errors=True)
+log_dir.mkdir()
+(log_dir / '.gitignore').write_text('*')
 
 node = [
     pyrem.host.LocalHost(),
@@ -63,7 +69,7 @@ def replica_cmd(index):
         '-c', proj_dir + 'run/nsl.txt',
         '-m', 'tombft',
         '-i', f'{index}',
-        '-w', '16',
+        '-w', '28',
     ]
 client_cmd = [
     'timeout', f'{duration + 5}',
@@ -72,7 +78,7 @@ client_cmd = [
     '-m', 'tombft',
     '-h', '11.0.0.101',
     '-u', f'{duration}',
-    '-t', '8',
+    '-t', '4',
 ]
 
 replica_task = [None] * 4
@@ -93,6 +99,7 @@ for i in range(4):
     output = replica_task[i].return_values['stderr'].decode()
     if re.search(f'Terminating on SIGTERM/SIGINT$', output, re.MULTILINE) is None:
         print(f'Replica {i} not finish normally')
+        print(output)
         sys.exit(1)
     with open(pathlib.Path() / 'logs' / f'replica-{i}.txt', 'w') as log_file:
         log_file.write(output)

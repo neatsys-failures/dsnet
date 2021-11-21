@@ -7,8 +7,6 @@
 
 namespace dsnet {
 
-static int cpus[] = {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,-1};
-
 static void SetThreadAffinity(pthread_t thread, int core_id) {
     cpu_set_t mask;
     CPU_ZERO(&mask);
@@ -17,14 +15,7 @@ static void SetThreadAffinity(pthread_t thread, int core_id) {
     // ASSERT(status == 0);
 }
 
-using std::promise;
-using std::move;
-using std::future;
-using std::future_error;
 using std::thread;
-using std::unique_lock;
-using std::mutex;
-using std::atomic;
 
 static Latency_t worker_spin[128], solo_spin[128], prologue_work[128];
 static Latency_t driver_spin, solo_idle, solo_work;
@@ -45,8 +36,8 @@ Runner::Runner(int worker_thread_count)
     _Latency_Init(&solo_work, "solo_work");
 
     for (int i = 0; i < SLOT_COUNT; i += 1) {
-        slot_ready[i] = true;
-        pending_epilogue[i] = false;
+        slot_state[i] = SLOT_AVAIL;
+        solo_next_slot[i] = -1;
     }
 
     for (int i = 0; i < worker_thread_count; i += 1) {
@@ -58,15 +49,18 @@ Runner::Runner(int worker_thread_count)
         RunSoloThread();
     });
 
-    SetThreadAffinity(pthread_self(), cpus[0]);
-    SetThreadAffinity(solo_thread.native_handle(), cpus[1]);
-    int cpu_i = 1;
+    SetThreadAffinity(pthread_self(), 0);
+    SetThreadAffinity(solo_thread.native_handle(), 1);
+    int cpu = 1;
     for (int i = 0; i < worker_thread_count; i += 1) {
-        cpu_i += 1;
-        if (cpus[cpu_i] == -1) {
+        cpu += 1;
+        while (cpu == 15 || cpu == 33 || cpu / 16 == 1) {
+            cpu += 1;
+        }
+        if (cpu == 64) {
             Panic("Too many worker threads");
         }
-        SetThreadAffinity(worker_threads[i].native_handle(), cpus[cpu_i]);
+        SetThreadAffinity(worker_threads[i].native_handle(), cpu);
     }
 
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -100,88 +94,106 @@ Runner::~Runner() {
 void Runner::RunWorkerThread(int worker_id) {
     int slot_id = worker_id - worker_thread_count;
     while (!shutdown) {
-        // Latency_Start(&job_total[worker_id]);
         slot_id = (slot_id + worker_thread_count) % SLOT_COUNT;
 
-        Latency_Start(&solo_spin[worker_id]);
-        while (pending_solo[slot_id]) {
-            if (shutdown) {
-                return;
-            }
-        }
-        if (pending_epilogue[slot_id]) {
-            Latency_EndType(&solo_spin[worker_id], 'e');
+        Latency_Start(&prologue_work[worker_id]);
+        if (slot_state[slot_id] & SLOT_PENDING_EPILOGUE) {
+            ASSERT(epilogue_slots[slot_id]);
+            Debug("work on epilogue: slot = %d, state = %u", slot_id, (uint32_t) slot_state[slot_id]);
             epilogue_slots[slot_id]();
             epilogue_slots[slot_id] = nullptr;
-            pending_epilogue[slot_id] = false;
+            slot_state[slot_id] &= ~SLOT_PENDING_EPILOGUE;
+            Latency_EndType(&prologue_work[worker_id], 'e');
         } else {
             // drop current recording
-            // Latency_EndType(&solo_spin[worker_id], '_');
         }
-        if (slot_ready[slot_id]) {  // slot ready = no work
+        if (!(slot_state[slot_id] & SLOT_PENDING_PROLOGUE)) {
             continue;
         }
 
         // Latency_End(&worker_spin[worker_id]);
+        Debug("work on prologue: slot = %d", slot_id);
+        ASSERT(prologue_slots[slot_id]);
         Latency_Start(&prologue_work[worker_id]);
         Solo solo = prologue_slots[slot_id]();
         prologue_slots[slot_id] = nullptr;
-        slot_ready[slot_id] = true;
+        slot_state[slot_id] &= ~SLOT_PENDING_PROLOGUE;
         Latency_End(&prologue_work[worker_id]);
 
         Latency_Start(&solo_spin[worker_id]);
-        while (pending_solo[slot_id]) {  // previous solo still in slot
+        while (slot_state[slot_id] & SLOT_PENDING_SOLO) {  // previous solo still in slot
             if (shutdown) {
                 Latency_EndType(&solo_spin[worker_id], 's');
                 return;
             }
         }
         Latency_End(&solo_spin[worker_id]);
+        ASSERT(!solo_slots[slot_id]);
         solo_slots[slot_id] = solo;
-        pending_solo[slot_id] = true;
-
+        slot_state[slot_id] |= SLOT_PENDING_SOLO;
     }
 }
 
 void Runner::RunSoloThread() {
-    for (solo_id = 0;; solo_id = (solo_id + 1) % SLOT_COUNT) {
+    solo_id = 0;
+    while (true) {
         Latency_Start(&solo_idle);
-        while (!pending_solo[solo_id]) {
+        while (!(slot_state[solo_id] & SLOT_HAS_NEXT)) {
+            if (shutdown) {
+                Latency_EndType(&solo_idle, 's');
+                return;
+            }
+        }
+        int prev_slot = solo_id;
+        solo_id = solo_next_slot[solo_id];
+        // Debug("solo: %d -> %d", prev_slot, solo_id);
+        solo_next_slot[prev_slot] = -1;
+        slot_state[prev_slot] &= ~SLOT_HAS_NEXT;
+        while (!(slot_state[solo_id] & SLOT_PENDING_SOLO)) {
             if (shutdown) {
                 Latency_EndType(&solo_idle, 's');
                 return;
             }
         }
         Latency_End(&solo_idle);
+        // Debug("solo: slot = %d", solo_id);
         Latency_Start(&solo_work);
         if (solo_slots[solo_id]) {
             solo_slots[solo_id]();
         }
         solo_slots[solo_id] = nullptr;
-        pending_solo[solo_id] = false;
+        slot_state[solo_id] &= ~SLOT_PENDING_SOLO;
         Latency_End(&solo_work);
     }
 }
 
 void Runner::RunPrologue(Prologue prologue) {
     Latency_Start(&driver_spin);
-    while (!slot_ready[next_slot]) {
+    int prev_slot = next_slot;
+    next_slot = (next_slot + 1) % SLOT_COUNT;
+    while (true) {
         if (shutdown) {
             Latency_EndType(&driver_spin, 's');
             return;
         }
+        if (next_slot != prev_slot && !(slot_state[next_slot] & SLOT_PENDING_PROLOGUE)) {
+            break;
+        }
+        next_slot = (next_slot + 1) % SLOT_COUNT;
     }
+    Debug("alloc slot = %d", next_slot);
     Latency_End(&driver_spin);
-
     prologue_slots[next_slot] = prologue;
-    slot_ready[next_slot] = false;
-    next_slot = (next_slot + 1) % SLOT_COUNT;
+    slot_state[next_slot] |= SLOT_PENDING_PROLOGUE;
+    solo_next_slot[prev_slot] = next_slot;
+    slot_state[prev_slot] |= SLOT_HAS_NEXT;
 }
 
 void Runner::RunEpilogue(Epilogue epilogue) {
     // invariant: epilogue slot must be available at this time
+    Debug("pending epilogue: slot = %d", solo_id);
     epilogue_slots[solo_id] = epilogue;
-    pending_epilogue[solo_id] = true;
+    slot_state[solo_id] |= SLOT_PENDING_EPILOGUE;
 }
 
 }

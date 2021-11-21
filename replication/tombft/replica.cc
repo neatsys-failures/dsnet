@@ -94,7 +94,6 @@ void TOMBFTReplica::HandleRequest(
     }
 
     last_message_number += 1;
-    // TODO log
     ExecuteOne(message);
 }
 
