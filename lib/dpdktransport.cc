@@ -11,16 +11,12 @@
 namespace dsnet {
 
 #define TIMER_RESOLUTION_MS 1
-#define NUM_MBUFS 8192
 #define MAX_PKT_BURST 32
 #define MEMPOOL_CACHE_SIZE 256
 #define RTE_RX_DESC 4096
 #define RTE_TX_DESC 4096
 #define IPV4_HDR_SIZE 5
 #define IPV4_TTL 0xFF
-
-thread_local static int thread_rx_queue_id;
-thread_local static int thread_tx_queue_id;
 
 typedef uint32_t Preamble;
 static const Preamble NONFRAG_MAGIC = 0x20050318;
@@ -68,14 +64,14 @@ operator<(const DPDKTransportAddress &a, const DPDKTransportAddress &b)
 }
 
 static void
-ConstructArguments(int argc, char **argv, const std::string &cmdline)
+ConstructArguments(int argc, char **argv, int core_id, const std::string &cmdline)
 {
     argv[0] = new char[strlen("command")+1];
     strcpy(argv[0], "command");
     argv[1] = new char[strlen("-l")+1];
     strcpy(argv[1], "-l");
-    argv[2] = new char[strlen("0")+1];
-    strcpy(argv[2], "0");
+    argv[2] = new char[16];
+    sprintf(argv[2], "%d", core_id);
     argv[3] = new char[strlen("--proc-type=auto")+1];
     strcpy(argv[3], "--proc-type=auto");
     if (cmdline.length() > 0) {
@@ -84,21 +80,137 @@ ConstructArguments(int argc, char **argv, const std::string &cmdline)
     }
 }
 
-DPDKTransport::DPDKTransport(int dev_port, double drop_rate, const std::string &cmdline)
-    : dev_port_(dev_port), drop_rate_(drop_rate), status_(STOPPED),
-    multicast_addr_(nullptr), last_timer_id_(0)
+#define FLOW_TRANSPORT_PRIORITY 0
+#define FLOW_DEFAULT_PRIORITY 1
+#define FLOW_PATTERN_NUM 4
+#define FLOW_ETH_TYPE_MASK 0xFFFF
+#define FLOW_IPV4_PROTO_UDP 0x11
+#define FLOW_IPV4_PROTO_MASK 0xFF
+#define FLOW_UDP_PORT_MASK 0xFF00
+#define FLOW_ACTION_NUM 2
+
+static void
+GenerateFlowRules(int dev_port, int n_cores)
+{
+    if (n_cores <= 1) {
+        return;
+    }
+
+    {
+        /* Default flow rule: drop */
+        struct rte_flow_attr attr;
+        memset(&attr, 0, sizeof(struct rte_flow_attr));
+        attr.priority = FLOW_DEFAULT_PRIORITY;
+        attr.ingress = 1;
+        struct rte_flow_item patterns[2];
+        memset(patterns, 0, sizeof(patterns));
+        struct rte_flow_item_eth eth_spec;
+        struct rte_flow_item_eth eth_mask;
+        memset(&eth_spec, 0, sizeof(struct rte_flow_item_eth));
+        memset(&eth_mask, 0, sizeof(struct rte_flow_item_eth));
+        patterns[0].type = RTE_FLOW_ITEM_TYPE_ETH;
+        patterns[0].spec = &eth_spec;
+        patterns[0].mask = &eth_mask;
+        patterns[1].type = RTE_FLOW_ITEM_TYPE_END;
+        struct rte_flow_action actions[2];
+        actions[0].type = RTE_FLOW_ACTION_TYPE_DROP;
+        actions[1].type = RTE_FLOW_ACTION_TYPE_END;
+        if (rte_flow_validate(dev_port, &attr, patterns, actions, nullptr) != 0) {
+            Panic("Default flow rule is not valid");
+        }
+        if (rte_flow_create(dev_port, &attr, patterns, actions, nullptr) == nullptr) {
+            Panic("rte_flow_create failed");
+        }
+    }
+
+    /* Configure receive flow rule for each core */
+    for (int core = 0; core < n_cores; core++) {
+        // Each core gets one rx queue
+        uint16_t rx_queue_id = core;
+
+        /* Attributes */
+        struct rte_flow_attr attr;
+        memset(&attr, 0, sizeof(struct rte_flow_attr));
+        attr.priority = FLOW_TRANSPORT_PRIORITY;
+        attr.ingress = 1;
+
+        /* Header match */
+        // Ethernet: accept only IPv4 packets
+        struct rte_flow_item patterns[FLOW_PATTERN_NUM];
+        memset(patterns, 0, sizeof(patterns));
+        struct rte_flow_item_eth eth_spec;
+        struct rte_flow_item_eth eth_mask;
+        memset(&eth_spec, 0, sizeof(struct rte_flow_item_eth));
+        memset(&eth_mask, 0, sizeof(struct rte_flow_item_eth));
+        eth_spec.type = rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4);
+        eth_mask.type = rte_cpu_to_be_16(FLOW_ETH_TYPE_MASK);
+        patterns[0].type = RTE_FLOW_ITEM_TYPE_ETH;
+        patterns[0].spec = &eth_spec;
+        patterns[0].mask = &eth_mask;
+        // IPv4: accept only UDP packets
+        struct rte_flow_item_ipv4 ip_spec;
+        struct rte_flow_item_ipv4 ip_mask;
+        memset(&ip_spec, 0, sizeof(struct rte_flow_item_ipv4));
+        memset(&ip_mask, 0, sizeof(struct rte_flow_item_ipv4));
+        ip_spec.hdr.next_proto_id = FLOW_IPV4_PROTO_UDP;
+        ip_mask.hdr.next_proto_id = FLOW_IPV4_PROTO_MASK;
+        patterns[1].type = RTE_FLOW_ITEM_TYPE_IPV4;
+        patterns[1].spec = &ip_spec;
+        patterns[1].mask = &ip_mask;
+        // UDP: use the first byte of destination port to steer packet
+        struct rte_flow_item_udp udp_spec;
+        struct rte_flow_item_udp udp_mask;
+        memset(&udp_spec, 0, sizeof(struct rte_flow_item_udp));
+        memset(&udp_mask, 0, sizeof(struct rte_flow_item_udp));
+        udp_spec.hdr.dst_port = rte_cpu_to_be_16(core << 8);
+        udp_mask.hdr.dst_port = rte_cpu_to_be_16(FLOW_UDP_PORT_MASK);
+        patterns[2].type = RTE_FLOW_ITEM_TYPE_UDP;
+        patterns[2].spec = &udp_spec;
+        patterns[2].mask = &udp_mask;
+
+        patterns[3].type = RTE_FLOW_ITEM_TYPE_END;
+
+        /* Actions: forward to queues */
+        struct rte_flow_action actions[FLOW_ACTION_NUM];
+        struct rte_flow_action_queue action_queue;
+        memset(actions, 0, sizeof(actions));
+        action_queue.index = rx_queue_id;
+        actions[0].type = RTE_FLOW_ACTION_TYPE_QUEUE;
+        actions[0].conf = &action_queue;
+        actions[1].type = RTE_FLOW_ACTION_TYPE_END;
+
+        /* Validate and install flow rules */
+        if (rte_flow_validate(dev_port, &attr, patterns, actions, nullptr) != 0) {
+            Panic("Flow rule is not valid");
+        }
+        if (rte_flow_create(dev_port, &attr, patterns, actions, nullptr) == nullptr) {
+            Panic("rte_flow_create failed");
+        }
+    }
+}
+
+DPDKTransport::DPDKTransport(int dev_port,
+        double drop_rate,
+        int n_cores,
+        int core_id,
+        const std::string &cmdline)
+    : dev_port_(dev_port), drop_rate_(drop_rate), n_cores_(n_cores), core_id_(core_id),
+    status_(STOPPED), multicast_addr_(nullptr), last_timer_id_(0)
 {
     // Initialize DPDK
+    ASSERT(core_id >= 0);
     int argc = 4;
     if (cmdline.length() > 0) {
         argc++;
     }
     char **argv = new char*[argc];
-    ConstructArguments(argc, argv, cmdline);
+    ConstructArguments(argc, argv, core_id_, cmdline);
 
     if (rte_eal_init(argc, argv) < 0) {
         Panic("rte_eal_init failed");
     }
+
+    enum rte_proc_type_t proc_type = rte_eal_process_type();
 
     if (rte_eth_dev_count_avail() == 0) {
         Panic("No available Ethernet ports");
@@ -106,12 +218,17 @@ DPDKTransport::DPDKTransport(int dev_port, double drop_rate, const std::string &
     // Initialize pktmbuf pool
     char pool_name[32];
     sprintf(pool_name, "pktmbuf_pool");
-    pktmbuf_pool_ = rte_pktmbuf_pool_create(pool_name,
-                                            NUM_MBUFS,
-                                            MEMPOOL_CACHE_SIZE,
-                                            0,
-                                            RTE_MBUF_DEFAULT_BUF_SIZE,
-                                            rte_socket_id());
+    unsigned nb_mbufs = n_cores * (RTE_RX_DESC + RTE_TX_DESC);
+    if (proc_type == RTE_PROC_PRIMARY) {
+        pktmbuf_pool_ = rte_pktmbuf_pool_create(pool_name,
+                                                nb_mbufs,
+                                                MEMPOOL_CACHE_SIZE,
+                                                0,
+                                                RTE_MBUF_DEFAULT_BUF_SIZE,
+                                                rte_socket_id());
+    } else {
+        pktmbuf_pool_ = rte_mempool_lookup(pool_name);
+    }
 
     if (pktmbuf_pool_ == nullptr) {
         Panic("rte_pktmbuf_pool_create failed");
@@ -122,68 +239,75 @@ DPDKTransport::DPDKTransport(int dev_port, double drop_rate, const std::string &
     }
 
     // Initialize port
-    struct rte_eth_conf port_conf;
-    memset(&port_conf, 0, sizeof(port_conf));
-    port_conf.txmode.mq_mode = ETH_MQ_TX_NONE;
-    port_conf.rx_adv_conf.rss_conf.rss_key = nullptr;
-    //port_conf.rx_adv_conf.rss_conf.rss_hf = ETH_RSS_NONFRAG_IPV4_UDP;
-
-    struct rte_eth_dev_info dev_info;
-    if (rte_eth_dev_info_get(dev_port_, &dev_info) != 0) {
-        Panic("rte_eth_dev_info_get failed");
-    }
-    if (dev_info.tx_offload_capa & DEV_TX_OFFLOAD_MBUF_FAST_FREE) {
-        port_conf.txmode.offloads |= DEV_TX_OFFLOAD_MBUF_FAST_FREE;
-    }
-
-    int num_rx_queues = 1;
-    int num_tx_queues = 1;
-    if (rte_eth_dev_configure(dev_port_,
-                              num_rx_queues,
-                              num_tx_queues,
-                              &port_conf) < 0) {
-        Panic("rte_eth_dev_configure failed");
-    }
-    uint16_t nb_rxd = RTE_RX_DESC, nb_txd = RTE_TX_DESC;
-    if (rte_eth_dev_adjust_nb_rx_tx_desc(dev_port_, &nb_rxd, &nb_txd) < 0) {
-        Panic("rte_eth_dev_adjust_nb_rx_tx_desc failed");
-    }
-
-    // Initialize RX queues
-    struct rte_eth_rxconf rxconf = dev_info.default_rxconf;
-    rxconf.offloads = port_conf.rxmode.offloads;
-    for (int i = 0; i < num_rx_queues; i++) {
-        if (rte_eth_rx_queue_setup(dev_port_,
-                                   i,
-                                   nb_rxd,
-                                   rte_eth_dev_socket_id(dev_port_),
-                                   &rxconf,
-                                   pktmbuf_pool_) < 0) {
-            Panic("rte_eth_rx_queue_setup failed");
+    if (proc_type == RTE_PROC_PRIMARY) {
+        struct rte_eth_conf port_conf;
+        memset(&port_conf, 0, sizeof(port_conf));
+        port_conf.txmode.mq_mode = ETH_MQ_TX_NONE;
+        port_conf.rx_adv_conf.rss_conf.rss_key = nullptr;
+        if (n_cores > 1) {
+            // Enable RSS
+            port_conf.rx_adv_conf.rss_conf.rss_hf = ETH_RSS_NONFRAG_IPV4_UDP;
         }
-    }
 
-    // Initialize TX queues
-    struct rte_eth_txconf txconf = dev_info.default_txconf;
-    txconf.offloads = port_conf.txmode.offloads;
-    for (int i = 0; i < num_tx_queues; i++) {
-        if (rte_eth_tx_queue_setup(dev_port_,
-                                   i,
-                                   nb_txd,
-                                   rte_eth_dev_socket_id(dev_port_),
-                                   &txconf) < 0) {
-            Panic("rte_eth_tx_queue_setup failed");
+        struct rte_eth_dev_info dev_info;
+        if (rte_eth_dev_info_get(dev_port_, &dev_info) != 0) {
+            Panic("rte_eth_dev_info_get failed");
         }
-    }
+        if (dev_info.tx_offload_capa & DEV_TX_OFFLOAD_MBUF_FAST_FREE) {
+            port_conf.txmode.offloads |= DEV_TX_OFFLOAD_MBUF_FAST_FREE;
+        }
 
-    // Start device
-    if (rte_eth_dev_start(dev_port_) < 0) {
-        Panic("rte_eth_dev_start failed");
-    }
-    if (rte_eth_promiscuous_enable(dev_port_) != 0) {
-        Panic("rte_eth_promiscuous_enable failed");
-    }
+        int num_rx_queues = n_cores;
+        int num_tx_queues = n_cores;
+        if (rte_eth_dev_configure(dev_port_,
+                                  num_rx_queues,
+                                  num_tx_queues,
+                                  &port_conf) < 0) {
+            Panic("rte_eth_dev_configure failed");
+        }
+        uint16_t nb_rxd = RTE_RX_DESC, nb_txd = RTE_TX_DESC;
+        if (rte_eth_dev_adjust_nb_rx_tx_desc(dev_port_, &nb_rxd, &nb_txd) < 0) {
+            Panic("rte_eth_dev_adjust_nb_rx_tx_desc failed");
+        }
 
+        // Initialize RX queues
+        struct rte_eth_rxconf rxconf = dev_info.default_rxconf;
+        rxconf.offloads = port_conf.rxmode.offloads;
+        for (int i = 0; i < num_rx_queues; i++) {
+            if (rte_eth_rx_queue_setup(dev_port_,
+                                       i,
+                                       nb_rxd,
+                                       rte_eth_dev_socket_id(dev_port_),
+                                       &rxconf,
+                                       pktmbuf_pool_) < 0) {
+                Panic("rte_eth_rx_queue_setup failed");
+            }
+        }
+
+        // Initialize TX queues
+        struct rte_eth_txconf txconf = dev_info.default_txconf;
+        txconf.offloads = port_conf.txmode.offloads;
+        for (int i = 0; i < num_tx_queues; i++) {
+            if (rte_eth_tx_queue_setup(dev_port_,
+                                       i,
+                                       nb_txd,
+                                       rte_eth_dev_socket_id(dev_port_),
+                                       &txconf) < 0) {
+                Panic("rte_eth_tx_queue_setup failed");
+            }
+        }
+
+        // Start device
+        if (rte_eth_dev_start(dev_port_) < 0) {
+            Panic("rte_eth_dev_start failed");
+        }
+        if (rte_eth_promiscuous_enable(dev_port_) != 0) {
+            Panic("rte_eth_promiscuous_enable failed");
+        }
+
+        // Create flow rules
+        GenerateFlowRules(dev_port, n_cores);
+    }
 }
 
 DPDKTransport::~DPDKTransport()
@@ -198,7 +322,15 @@ DPDKTransport::RegisterInternal(TransportReceiver *receiver,
 {
     ASSERT(addr != nullptr);
     DPDKTransportAddress *da = new DPDKTransportAddress(LookupAddressInternal(*addr));
+
+    // We use first byte of udp port to steer packet
+    uint16_t udp_port = (rte_be_to_cpu_16(da->udp_addr_) & 0xFF) | (core_id_ << 8);
+    da->udp_addr_ = rte_cpu_to_be_16(udp_port);
     receiver->SetAddress(da);
+
+    if (receivers_.count(da->udp_addr_) > 0) {
+        Panic("Address already registered before");
+    }
     receivers_[da->udp_addr_] = receiver;
 }
 
@@ -213,17 +345,91 @@ DPDKTransport::ListenOnMulticast(TransportReceiver *receiver,
     multicast_receivers_.push_back(receiver);
 }
 
+static int
+DPDKMainThread(void *arg)
+{
+    DPDKTransport *transport = (DPDKTransport *)arg;
+    transport->RunTransport();
+}
+
 void
 DPDKTransport::Run()
 {
+    rte_eal_mp_remote_launch(DPDKMainThread, (void *)this, CALL_MAIN);
+}
+
+void
+DPDKTransport::RunTransport()
+{
+    static uint64_t cycles_per_ms = rte_get_timer_hz() / 1000;
+    static uint64_t timer_resolution_cycles = cycles_per_ms * TIMER_RESOLUTION_MS;
+
+    uint16_t n_rx;
+    struct rte_mbuf *pkt_burst[MAX_PKT_BURST];
+    uint64_t cur_tsc, prev_tsc = 0;
+    int rx_queue_id = core_id_;
+
     if (receivers_.empty()) {
         Panic("No transport receiver registered");
     }
     status_ = RUNNING;
-    // Currently only use master core for transport
-    thread_rx_queue_id = 0;
-    thread_tx_queue_id = 0;
-    RunTransport(0);
+
+    while (status_ == RUNNING) {
+        cur_tsc = rte_rdtsc();
+        if (cur_tsc - prev_tsc > timer_resolution_cycles) {
+            rte_timer_manage();
+            prev_tsc = cur_tsc;
+        }
+        n_rx = rte_eth_rx_burst(dev_port_,
+                                rx_queue_id,
+                                pkt_burst,
+                                MAX_PKT_BURST);
+        for (int i = 0; i < n_rx; i++) {
+            struct rte_mbuf *m = pkt_burst[i];
+            // Parse packet header
+            struct rte_ether_hdr *ether_hdr;
+            struct rte_ipv4_hdr *ip_hdr;
+            struct rte_udp_hdr *udp_hdr;
+            size_t offset = 0;
+            ether_hdr = rte_pktmbuf_mtod_offset(m, struct rte_ether_hdr*, offset);
+            if (ether_hdr->ether_type ==
+                    rte_be_to_cpu_16(RTE_ETHER_TYPE_IPV4)) {
+                offset += RTE_ETHER_HDR_LEN;
+                ip_hdr = rte_pktmbuf_mtod_offset(m, struct rte_ipv4_hdr*, offset);
+                if (ip_hdr->next_proto_id == IPPROTO_UDP) {
+                    offset += (ip_hdr->version_ihl & RTE_IPV4_HDR_IHL_MASK) *
+                        RTE_IPV4_IHL_MULTIPLIER;
+                    udp_hdr = rte_pktmbuf_mtod_offset(m, struct rte_udp_hdr*, offset);
+                    offset += sizeof(struct rte_udp_hdr);
+
+                    // Deliver packet
+                    TransportReceiver *receiver =
+                        RouteToReceiver(DPDKTransportAddress(ether_hdr->d_addr,
+                                                             ip_hdr->dst_addr,
+                                                             udp_hdr->dst_port));
+                    if (receiver != nullptr) {
+                        void *msg_buf = rte_pktmbuf_mtod_offset(m, void*, offset);
+                        char *ptr = (char *)msg_buf;
+                        Preamble magic = *(Preamble *)ptr;
+                        ptr += sizeof(Preamble);
+
+                        if (magic == NONFRAG_MAGIC) {
+                            // Construct source address
+                            DPDKTransportAddress src(ether_hdr->s_addr,
+                                                     ip_hdr->src_addr,
+                                                     udp_hdr->src_port);
+                            receiver->ReceiveMessage(src,
+                                                     ptr,
+                                                     rte_be_to_cpu_16(udp_hdr->dgram_len)
+                                                     - sizeof(struct rte_udp_hdr)
+                                                     - sizeof(Preamble));
+                        }
+                    }
+                }
+            }
+            rte_pktmbuf_free(m);
+        }
+    }
 }
 
 void
@@ -246,7 +452,7 @@ DPDKTransport::Timer(uint64_t ms, timer_callback_t cb)
     timers_[info->id] = info;
 
     uint64_t ticks = (ms == 0) ? 0 : hz / (1000 / (double)ms);
-    rte_timer_reset(&info->timer, ticks, SINGLE, rte_lcore_id(), TimerCallback, info);
+    rte_timer_reset(&info->timer, ticks, SINGLE, core_id_, TimerCallback, info);
 
     return info->id;
 }
@@ -347,7 +553,8 @@ DPDKTransport::SendMessageInternal(TransportReceiver *src,
     ptr += sizeof(Preamble);
     m.Serialize(ptr);
     /* Send packet */
-    if (rte_eth_tx_burst(dev_port_, thread_tx_queue_id, &mbuf, 1) == 1) {
+    int tx_queue = core_id_;
+    if (rte_eth_tx_burst(dev_port_, tx_queue, &mbuf, 1) == 1) {
         return true;
     } else {
         rte_pktmbuf_free(mbuf);
@@ -385,74 +592,6 @@ DPDKTransport::ReverseLookupAddress(const TransportAddress &addr) const
     return ReplicaAddress(std::string(host_buf),
                           std::to_string(rte_be_to_cpu_16(da->udp_addr_)),
                           std::string(dev_buf));
-}
-
-void
-DPDKTransport::RunTransport(int tid)
-{
-    static uint64_t cycles_per_ms = rte_get_timer_hz() / 1000;
-    static uint64_t timer_resolution_cycles = cycles_per_ms * TIMER_RESOLUTION_MS;
-
-    uint16_t n_rx;
-    struct rte_mbuf *pkt_burst[MAX_PKT_BURST];
-    uint64_t cur_tsc, prev_tsc = 0;
-
-    while (status_ == RUNNING) {
-        cur_tsc = rte_rdtsc();
-        if (cur_tsc - prev_tsc > timer_resolution_cycles) {
-            rte_timer_manage();
-            prev_tsc = cur_tsc;
-        }
-        n_rx = rte_eth_rx_burst(dev_port_,
-                                thread_rx_queue_id,
-                                pkt_burst,
-                                MAX_PKT_BURST);
-        for (int i = 0; i < n_rx; i++) {
-            struct rte_mbuf *m = pkt_burst[i];
-            // Parse packet header
-            struct rte_ether_hdr *ether_hdr;
-            struct rte_ipv4_hdr *ip_hdr;
-            struct rte_udp_hdr *udp_hdr;
-            size_t offset = 0;
-            ether_hdr = rte_pktmbuf_mtod_offset(m, struct rte_ether_hdr*, offset);
-            if (ether_hdr->ether_type ==
-                    rte_be_to_cpu_16(RTE_ETHER_TYPE_IPV4)) {
-                offset += RTE_ETHER_HDR_LEN;
-                ip_hdr = rte_pktmbuf_mtod_offset(m, struct rte_ipv4_hdr*, offset);
-                if (ip_hdr->next_proto_id == IPPROTO_UDP) {
-                    offset += (ip_hdr->version_ihl & RTE_IPV4_HDR_IHL_MASK) *
-                        RTE_IPV4_IHL_MULTIPLIER;
-                    udp_hdr = rte_pktmbuf_mtod_offset(m, struct rte_udp_hdr*, offset);
-                    offset += sizeof(struct rte_udp_hdr);
-
-                    // Deliver packet
-                    TransportReceiver *receiver =
-                        RouteToReceiver(DPDKTransportAddress(ether_hdr->d_addr,
-                                                             ip_hdr->dst_addr,
-                                                             udp_hdr->dst_port));
-                    if (receiver != nullptr) {
-                        void *msg_buf = rte_pktmbuf_mtod_offset(m, void*, offset);
-                        char *ptr = (char *)msg_buf;
-                        Preamble magic = *(Preamble *)ptr;
-                        ptr += sizeof(Preamble);
-
-                        if (magic == NONFRAG_MAGIC) {
-                            // Construct source address
-                            DPDKTransportAddress src(ether_hdr->s_addr,
-                                                     ip_hdr->src_addr,
-                                                     udp_hdr->src_port);
-                            receiver->ReceiveMessage(src,
-                                                     ptr,
-                                                     rte_be_to_cpu_16(udp_hdr->dgram_len)
-                                                     - sizeof(struct rte_udp_hdr)
-                                                     - sizeof(Preamble));
-                        }
-                    }
-                }
-            }
-            rte_pktmbuf_free(m);
-        }
-    }
 }
 
 TransportReceiver *

@@ -82,7 +82,9 @@ public:
                                  const Configuration &config,
                                  int groupIdx,
                                  int replicaIdx) = 0;
-    /* Set addr to nullptr if receiver can be bound to any address */
+    /*
+     * Set addr to nullptr if receiver can be bound to any address.
+     */
     virtual void RegisterAddress(TransportReceiver *receiver,
                                  const Configuration &config,
                                  const ReplicaAddress *addr) = 0;

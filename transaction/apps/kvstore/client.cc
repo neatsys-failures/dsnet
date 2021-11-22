@@ -29,114 +29,48 @@
  **********************************************************************/
 
 #include "transaction/apps/kvstore/client.h"
-#include "lib/udptransport.h"
-
-#include "transaction/eris/client.h"
-#include "transaction/granola/client.h"
-#include "transaction/unreplicated/client.h"
-#include "transaction/spanner/client.h"
-#include "transaction/tapir/client.h"
-#include "transaction/common/frontend/txnclientcommon.h"
-
-using namespace std;
+#include "transaction/common/type.h"
 
 namespace dsnet {
 namespace transaction {
 namespace kvstore {
 
-KVClient::KVClient(TxnClient *txn_client,
-                   uint32_t nshards)
-	: txnClient(txn_client), nshards(nshards), transport(nullptr), protoClient(nullptr) { }
+KVClient::KVClient(Client *proto_client, uint32_t nshards)
+	: proto_client_(proto_client), nshards_(nshards) { }
 
-// Used by YCSB
-KVClient::KVClient(const string configPath, const ReplicaAddress &addr,
-                   int nshards, int mode)
-    : nshards(nshards)
+KVClient::~KVClient() { }
+
+void
+KVClient::InvokeKVTxn(const std::vector<KVOp> &kvops, bool indep, KVStoreCB cb)
 {
-    ifstream configStream(configPath);
-    if (configStream.fail()) {
-        Panic("unable to read configuration file: %s", configPath.c_str());
-    }
-
-    Configuration config(configStream);
-    this->transport = new UDPTransport();
-    switch (mode) {
-    case 1: {
-        this->protoClient = new eris::ErisClient(config, addr, this->transport);
-        break;
-    }
-    case 2: {
-        this->protoClient = new granola::GranolaClient(config, addr, this->transport);
-        break;
-    }
-    case 3: {
-        this->protoClient =
-            new transaction::unreplicated::UnreplicatedClient(config,
-                                                              addr,
-                                                              this->transport);
-        break;
-    }
-    case 4: {
-        this->protoClient = new spanner::SpannerClient(config, addr, this->transport);
-        break;
-    }
-    case 5: {
-        break;
-    }
-    default:
-        Panic("Unknown protocol mode");
-    }
-
-    if (mode == 5) {
-        this->txnClient = new tapir::TapirClient(config, addr, this->transport);
-    } else {
-        this->txnClient = new TxnClientCommon(transport, this->protoClient);
-    }
-}
-
-KVClient::~KVClient()
-{
-    if (this->txnClient != nullptr) {
-        delete this->txnClient;
-    }
-    if (this->protoClient != nullptr) {
-        delete this->protoClient;
-    }
-    if (this->transport != nullptr) {
-        delete this->transport;
-    }
-}
-
-bool
-KVClient::InvokeKVTxn(const vector<KVOp_t> &kvops, map<string, string> &results, bool indep)
-{
-    map<shardnum_t, string> requests;
-    map<shardnum_t, string> replies;
-    map<shardnum_t, proto::KVTxnMessage> msgs;
+    std::map<shardnum_t, string> requests;
+    std::map<shardnum_t, proto::KVTxnMessage> msgs;
+    std::map<std::string, std::string> results;
     bool ro = true;
 
     if (kvops.empty()) {
-        return true;
+        cb(results, true);
+        return;
     }
 
     // Group kv operations according to shards
-    for (KVOp_t op : kvops) {
-        shardnum_t shard = key_to_shard(op.key, nshards);
+    for (KVOp op : kvops) {
+        shardnum_t shard = key_to_shard(op.key, nshards_);
         if (requests.find(shard) == requests.end()) {
             proto::KVTxnMessage message;
-            msgs.insert(pair<shardnum_t, proto::KVTxnMessage>(shard, message));
+            msgs.insert(std::pair<shardnum_t, proto::KVTxnMessage>(shard, message));
         }
 
         proto::KVTxnMessage &message = msgs.at(shard);
         proto::GetMessage *getMessage;
         proto::PutMessage *putMessage;
-        switch (op.opType) {
-        case KVOp_t::GET: {
+        switch (op.op_type) {
+        case KVOp::GET: {
             getMessage = message.add_gets();
             getMessage->set_key(op.key);
             break;
         }
-        case KVOp_t::PUT: {
+        case KVOp::PUT: {
             ro = false;
             putMessage = message.add_puts();
             putMessage->set_key(op.key);
@@ -153,78 +87,57 @@ KVClient::InvokeKVTxn(const vector<KVOp_t> &kvops, map<string, string> &results,
         string txn_str;
 
         shard_txn.second.SerializeToString(&txn_str);
-        requests.insert(pair<shardnum_t, string>(shard_txn.first, txn_str));
+        requests.insert(std::pair<shardnum_t, string>(shard_txn.first, txn_str));
     }
 
-    if (!this->txnClient->Invoke(requests, replies, indep, ro)) {
-        return false;
-    }
-    ASSERT(requests.size() == replies.size());
-
-    ParseReplies(replies, results);
-    return true;
-}
-
-bool
-KVClient::InvokeGetTxn(const string &key, string &value)
-{
-    KVOp_t op;
-    bool ret;
-    op.opType = KVOp_t::GET;
-    op.key = key;
-    vector<KVOp_t> kvops;
-    kvops.push_back(op);
-    map<string, string> results;
-    ret = InvokeKVTxn(kvops, results, true);
-    value = results[key];
-    return ret;
-}
-
-bool
-KVClient::InvokePutTxn(const string &key, const string &value)
-{
-    KVOp_t op;
-    op.opType = KVOp_t::PUT;
-    op.key = key;
-    op.value = value;
-    vector<KVOp_t> kvops;
-    kvops.push_back(op);
-    map<string, string> results;
-    return InvokeKVTxn(kvops, results, true);
-}
-
-bool
-KVClient::InvokeRMWTxn(const string &key1, const string &key2,
-                       const string &value1, const string &value2,
-                       bool indep)
-{
-    vector<KVOp_t> kvops;
-    map<string, string> results;
-    KVOp_t op;
-
-    op.opType = KVOp_t::GET;
-    op.key = key1;
-    kvops.push_back(op);
-    op.opType = KVOp_t::GET;
-    op.key = key2;
-    kvops.push_back(op);
-    op.opType = KVOp_t::PUT;
-    op.key = key1;
-    op.value = value1;
-    kvops.push_back(op);
-    op.opType = KVOp_t::PUT;
-    op.key = key2;
-    op.value = value2;
-    kvops.push_back(op);
-
-    return InvokeKVTxn(kvops, results, indep);
+    cb_ = cb;
+    clientarg_t arg = {.indep = indep, .ro = ro};
+    this->proto_client_->Invoke(requests,
+                std::bind(&KVClient::InvokeCallback,
+                    this,
+                    std::placeholders::_1,
+                    std::placeholders::_2,
+                    std::placeholders::_3),
+                (void *)&arg);
 }
 
 void
-KVClient::ParseReplies(const map<shardnum_t, string> &replies,
-                       map<string, string> &results)
+KVClient::InvokeGetTxn(const std::string &key, KVStoreCB cb)
 {
-    for (auto &reply : replies) {
+    std::vector<KVOp> kvops;
+    kvops.push_back(KVOp{ .op_type = KVOp::GET, .key = key });
+    InvokeKVTxn(kvops, true, cb);
+}
+
+void
+KVClient::InvokePutTxn(const std::string &key, const std::string &value, KVStoreCB cb)
+{
+    std::vector<KVOp> kvops;
+    kvops.push_back(KVOp{ .op_type = KVOp::PUT, .key = key, .value = value });
+    InvokeKVTxn(kvops, true, cb);
+}
+
+void
+KVClient::InvokeRMWTxn(const std::string &key1, const std::string &key2,
+                       const std::string &value1, const std::string &value2,
+                       bool indep, KVStoreCB cb)
+{
+    std::vector<KVOp> kvops;
+    kvops.push_back(KVOp{ .op_type = KVOp::GET, .key = key1 });
+    kvops.push_back(KVOp{ .op_type = KVOp::GET, .key = key2 });
+    kvops.push_back(KVOp{ .op_type = KVOp::PUT, .key = key1, .value = value1 });
+    kvops.push_back(KVOp{ .op_type = KVOp::PUT, .key = key2, .value = value2 });
+    InvokeKVTxn(kvops, indep, cb);
+}
+
+void
+KVClient::InvokeCallback(const std::map<shardnum_t, std::string> &requests,
+        const std::map<shardnum_t, std::string> &replies,
+        bool commit)
+{
+    std::map<std::string, std::string> results;
+
+    for (const auto &reply : replies) {
         proto::KVTxnReplyMessage reply_msg;
         reply_msg.ParseFromString(reply.second);
 
@@ -232,6 +145,8 @@ KVClient::ParseReplies(const map<shardnum_t, string> &replies,
             results[reply_msg.rgets(i).key()] = reply_msg.rgets(i).value();
         }
     }
+
+    cb_(results, commit);
 }
 
 } // namespace kvstore

@@ -36,6 +36,8 @@ class DPDKTransport : public TransportCommon<DPDKTransportAddress>
 {
 public:
     DPDKTransport(int dev_port, double drop_rate = 0.0,
+                  int n_cores = 1,
+                  int core_id = 0,
                   const std::string &cmdline = "");
     virtual ~DPDKTransport();
     virtual void RegisterInternal(TransportReceiver *receiver,
@@ -51,6 +53,8 @@ public:
     virtual ReplicaAddress
     ReverseLookupAddress(const TransportAddress &addr) const override;
 
+    void RunTransport();
+
 private:
     struct DPDKTransportTimerInfo
     {
@@ -62,6 +66,8 @@ private:
 
     int dev_port_;
     double drop_rate_;
+    int n_cores_;
+    int core_id_;
     volatile enum {
         RUNNING,
         STOPPED,
@@ -79,7 +85,6 @@ private:
                                      const Message &m) override;
     virtual DPDKTransportAddress
     LookupAddressInternal(const ReplicaAddress &addr) const override;
-    void RunTransport(int tid);
     TransportReceiver *RouteToReceiver(const DPDKTransportAddress &addr);
     static void TimerCallback(struct rte_timer *timer, void *arg);
     void OnTimer(DPDKTransportTimerInfo *info);
