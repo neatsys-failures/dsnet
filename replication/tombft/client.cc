@@ -128,7 +128,8 @@ TOMBFTClient::HandleReply(
         }
     }
     Debug("Packet count = %d", count);
-    if (count < 2 * config.f + 1) {
+    // if (count < 2 * config.f + 1) {
+    if (count < config.n) {
         return;
     }
 

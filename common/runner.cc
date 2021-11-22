@@ -54,7 +54,7 @@ Runner::Runner(int worker_thread_count)
     int cpu = 1;
     for (int i = 0; i < worker_thread_count; i += 1) {
         cpu += 1;
-        while (cpu == 15 || cpu == 33 || cpu / 16 == 1) {
+        while (cpu == 15 || cpu == 33) {
             cpu += 1;
         }
         if (cpu == 64) {
@@ -144,18 +144,20 @@ void Runner::RunSoloThread() {
                 return;
             }
         }
+        Latency_EndType(&solo_idle, '1');
         int prev_slot = solo_id;
         solo_id = solo_next_slot[solo_id];
         // Debug("solo: %d -> %d", prev_slot, solo_id);
         solo_next_slot[prev_slot] = -1;
         slot_state[prev_slot] &= ~SLOT_HAS_NEXT;
+        Latency_Start(&solo_idle);
         while (!(slot_state[solo_id] & SLOT_PENDING_SOLO)) {
             if (shutdown) {
                 Latency_EndType(&solo_idle, 's');
                 return;
             }
         }
-        Latency_End(&solo_idle);
+        Latency_EndType(&solo_idle, '2');
         // Debug("solo: slot = %d", solo_id);
         Latency_Start(&solo_work);
         if (solo_slots[solo_id]) {
@@ -171,22 +173,26 @@ void Runner::RunPrologue(Prologue prologue) {
     Latency_Start(&driver_spin);
     int prev_slot = next_slot;
     next_slot = (next_slot + 1) % SLOT_COUNT;
-    while (true) {
+    while (slot_state[next_slot] & SLOT_PENDING_PROLOGUE) {
         if (shutdown) {
             Latency_EndType(&driver_spin, 's');
             return;
         }
-        if (next_slot != prev_slot && !(slot_state[next_slot] & SLOT_PENDING_PROLOGUE)) {
-            break;
-        }
+        // if (next_slot != prev_slot && !(slot_state[next_slot] & SLOT_PENDING_PROLOGUE)) {
         next_slot = (next_slot + 1) % SLOT_COUNT;
     }
     Debug("alloc slot = %d", next_slot);
-    Latency_End(&driver_spin);
     prologue_slots[next_slot] = prologue;
     slot_state[next_slot] |= SLOT_PENDING_PROLOGUE;
+    while (slot_state[prev_slot] & SLOT_HAS_NEXT) {
+        if (shutdown) {
+            Latency_EndType(&driver_spin, 's');
+            return;
+        }
+    }
     solo_next_slot[prev_slot] = next_slot;
     slot_state[prev_slot] |= SLOT_HAS_NEXT;
+    Latency_End(&driver_spin);
 }
 
 void Runner::RunEpilogue(Epilogue epilogue) {

@@ -35,11 +35,12 @@ void TOMBFTReplica::ReceiveMessage(
     runner.RunPrologue([
         this,
         escaping_remote = remote.clone(),
-        owned_buffer = string((const char *) buf, size)
+        owned_buffer = string((const char *) buf, size),
+        escaping_message = new proto::Message
     ]() -> Runner::Solo {
-        auto message = unique_ptr<proto::Message>(new proto::Message);
+        auto message = unique_ptr<proto::Message>(escaping_message);
         PBAdapter pb(*message);
-        auto security = unique_ptr<SignedAdapter>(new SignedAdapter(pb, ""));  // TODO
+        auto security = unique_ptr<SignedAdapter>(new SignedAdapter(pb, ""));
         auto tom = unique_ptr<TOMBFTAdapter>(new TOMBFTAdapter(*security, false));
         tom->Parse(owned_buffer.data(), owned_buffer.size());
         if (!tom->IsVerified() || !security->IsVerified()) {

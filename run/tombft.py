@@ -69,7 +69,7 @@ def replica_cmd(index):
         '-c', proj_dir + 'run/nsl.txt',
         '-m', 'tombft',
         '-i', f'{index}',
-        '-w', '28',
+        '-w', '30',
     ]
 client_cmd = [
     'timeout', f'{duration + 5}',
