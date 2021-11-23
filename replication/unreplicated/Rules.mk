@@ -12,6 +12,6 @@ OBJS-unreplicated-client := $(o)client.o $(o)unreplicated-proto.o \
 
 OBJS-unreplicated-replica := $(o)replica.o $(o)unreplicated-proto.o \
                $(OBJS-replica) $(LIB-message) \
-               $(LIB-configuration) $(LIB-pbmessage)
+               $(LIB-configuration) $(LIB-pbmessage) $(LIB-latency)
 
-$(o)client.o $(o)replica.o: $(o)unreplicated-proto.o
+$(o)client.o $(o)replica.o: $(o)unreplicated-proto.o $(LIB-latency)

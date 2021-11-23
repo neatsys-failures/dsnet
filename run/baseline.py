@@ -11,7 +11,7 @@ for line in open(pathlib.Path() / 'Makefile'):
         sys.exit(1)
 
 proj_dir = '/home/cowsay/dsnet/'
-local_dir = '/ws/dsnet/'
+local_dir = '/work/dsnet/'
 duration = 10
 
 node = [

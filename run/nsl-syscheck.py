@@ -6,7 +6,7 @@ import pyrem.task
 print('Standard NSL system performance check')
 print('Expect ~360000 <=42')
 proj_dir = '/home/cowsay/dsnet/'
-local_dir = '/ws/dsnet/'
+local_dir = '/work/dsnet/'
 for i in (1, 5):
     pyrem.host.LocalHost().run([
         'rsync', '-a', local_dir, f'nsl-node{i}:' + proj_dir[:-1]
