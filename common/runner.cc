@@ -40,6 +40,7 @@ Runner::Runner(int worker_thread_count)
     for (int i = 0; i < worker_thread_count; i += 1) {
         idle_hint[i] = true;
     }
+    last_idle = 0;
     working_solo = 0;
     for (int i = 0; i < SOLO_RING_SIZE; i += 1) {
         pending_solo[i] = false;
@@ -81,6 +82,13 @@ Runner::Runner(int worker_thread_count)
 }
 
 Runner::~Runner() {
+#ifndef DSNET_RUNNER_ALLOW_DISDARD
+    // user should make sure no more RunPrologue calling
+    // or this can block forever
+    while (working_solo <= last_task || last_epilogue < working_solo - 1) {
+    }
+#endif
+
     shutdown = true;
     for (int i = 0; i < worker_thread_count; i += 1) {
         worker_threads[i].join();
@@ -135,6 +143,10 @@ void Runner::RunWorkerThread(int worker_id) {
         Prologue prologue = working_prologue[worker_id];
         int order = task_order[worker_id];
         working_prologue[worker_id] = nullptr;
+        // is it ok?
+        idle_hint[worker_id] = true;
+        last_idle = worker_id;
+
         Solo solo = prologue();
         if (order - working_solo >= SOLO_RING_SIZE) {
             Panic("Solo ring overflow");
@@ -152,31 +164,31 @@ void Runner::RunWorkerThread(int worker_id) {
         } else {
             Latency_End(&worker_task[worker_id]);
         }
-        idle_hint[worker_id] = true;
+        // idle_hint[worker_id] = true;
     }
 }
 
 void Runner::RunSoloThread() {
     while (true) {
+        Latency_Start(&solo_spin);
         working_solo += 1;
         // Debug("solo pending: working = %d", (int) working_solo);
         int slot = working_solo % SOLO_RING_SIZE;
-        Latency_Start(&solo_spin);
         while (!pending_solo[slot]) {
             if (shutdown) {
                 return;
             }
         }
         Latency_End(&solo_spin);
+        Latency_Start(&solo_task);
         Solo solo = solo_ring[slot];
         solo_ring[slot] = nullptr;
         pending_solo[slot] = false;
 
         if (solo) {
-            Latency_Start(&solo_task);
             solo();
-            Latency_End(&solo_task);
         }
+        Latency_End(&solo_task);
     }
 }
 
@@ -199,7 +211,9 @@ void Runner::RunPrologue(Prologue prologue) {
     }
     Latency_EndType(&driver_spin, 's');
     Latency_Start(&driver_spin);
-    int worker_id = last_task % worker_thread_count;
+    // int worker_id = last_task % worker_thread_count;
+    // int worker_id = last_idle;
+    static int worker_id;
     while (!idle_hint[worker_id]) {
         if (shutdown) {
             return;

@@ -69,16 +69,16 @@ def replica_cmd(index):
         '-c', proj_dir + 'run/nsl.txt',
         '-m', 'tombft',
         '-i', f'{index}',
-        '-w', '36',
+        '-w', '24',
     ]
 client_cmd = [
-    'timeout', f'{duration + 5}',
+    'timeout', f'{duration + 3}',
     proj_dir  + 'bench/client',
     '-c', proj_dir + 'run/nsl.txt',
     '-m', 'tombft',
     '-h', '11.0.0.101',
     '-u', f'{duration}',
-    '-t', '1',
+    '-t', '4',
 ]
 
 replica_task = [None] * 4
@@ -88,7 +88,7 @@ for i in range(4):
     replica_task[i].start()
 client_task = [
     node[5].run(client_cmd, return_output=True)
-    for _ in range(1)
+    for _ in range(32)
 ]
 print('Start')
 pyrem.task.Parallel(client_task).start(wait=True)
