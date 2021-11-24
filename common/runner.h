@@ -48,8 +48,8 @@ private:
     void RunEpilogueThread();
     Epilogue PopEpilogue();
 
-    std::atomic<bool> idle_hint[WORKER_COUNT_MAX];
-    std::atomic<int> last_idle;
+    std::atomic<bool> worker_idle[WORKER_COUNT_MAX];
+    std::atomic<int> idle_hint;
     Prologue working_prologue[WORKER_COUNT_MAX];
     int task_order[WORKER_COUNT_MAX];
 

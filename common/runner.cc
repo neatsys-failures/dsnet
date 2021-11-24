@@ -38,9 +38,9 @@ Runner::Runner(int worker_thread_count)
     }
 
     for (int i = 0; i < worker_thread_count; i += 1) {
-        idle_hint[i] = true;
+        worker_idle[i] = true;
     }
-    last_idle = 0;
+    idle_hint = 0;
     working_solo = 0;
     for (int i = 0; i < SOLO_RING_SIZE; i += 1) {
         pending_solo[i] = false;
@@ -133,7 +133,7 @@ auto Runner::PopEpilogue() -> Epilogue {
 void Runner::RunWorkerThread(int worker_id) {
     while (true) {
         Latency_Start(&worker_spin[worker_id]);
-        while (idle_hint[worker_id]) {
+        while (worker_idle[worker_id]) {
             if (shutdown) {
                 return;
             }
@@ -144,8 +144,8 @@ void Runner::RunWorkerThread(int worker_id) {
         int order = task_order[worker_id];
         working_prologue[worker_id] = nullptr;
         // is it ok?
-        idle_hint[worker_id] = true;
-        last_idle = worker_id;
+        worker_idle[worker_id] = true;
+        idle_hint = worker_id;
 
         Solo solo = prologue();
         if (order - working_solo >= SOLO_RING_SIZE) {
@@ -164,7 +164,7 @@ void Runner::RunWorkerThread(int worker_id) {
         } else {
             Latency_End(&worker_task[worker_id]);
         }
-        // idle_hint[worker_id] = true;
+        // worker_idle[worker_id] = true;
     }
 }
 
@@ -212,9 +212,9 @@ void Runner::RunPrologue(Prologue prologue) {
     Latency_EndType(&driver_spin, 's');
     Latency_Start(&driver_spin);
     // int worker_id = last_task % worker_thread_count;
-    // int worker_id = last_idle;
     static int worker_id;
-    while (!idle_hint[worker_id]) {
+    worker_id = idle_hint != worker_id ? (int) idle_hint : (worker_id + 1) % worker_thread_count;
+    while (!worker_idle[worker_id]) {
         if (shutdown) {
             return;
         }
@@ -224,7 +224,7 @@ void Runner::RunPrologue(Prologue prologue) {
     Debug("Dispatch: task = %d, worker = %d", last_task, worker_id);
     working_prologue[worker_id] = prologue;
     task_order[worker_id] = last_task;
-    idle_hint[worker_id] = false;
+    worker_idle[worker_id] = false;
 }
 
 void Runner::RunEpilogue(Epilogue epilogue) {
