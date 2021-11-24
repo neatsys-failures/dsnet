@@ -21,8 +21,9 @@ namespace dsnet {
 //     (prologue latency + epilogue latency) / solo latency
 //     because of minor performance waving worker count should be a little bit more than it
 // * Solo and epilogue has higher priority than incoming prologue. It is acceptable
-//   to execute existing solo and epilogue in any order. As the result, the max
-//   number of working task is bounded
+//   to execute existing solo and epilogue in any order. As the result, 
+//   + the max number of working task is bounded
+//   + tail latency get best-effort control, which helps close-loop benchmark to get full throughput
 // * When above two objectives are achieved minimize thread idle time, i.e. keep
 //   needed worker count as close to ideal minimum as possible
 class Runner {
@@ -37,7 +38,7 @@ public:
     void RunEpilogue(Epilogue epilogue);
 private:
 #define WORKER_COUNT_MAX 128
-#define SOLO_RING_SIZE 1000
+#define SOLO_RING_SIZE 800
 #define EPILOGUE_RING_SIZE 1000
 
     int worker_thread_count;
@@ -45,7 +46,7 @@ private:
     volatile bool shutdown;
     void RunWorkerThread(int worker_id);
     void RunSoloThread();
-    void RunEpilogueThread();
+    void RunEpilogueThread(bool stable, int worker_id);
     Epilogue PopEpilogue();
 
     std::atomic<bool> worker_idle[WORKER_COUNT_MAX];

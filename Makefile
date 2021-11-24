@@ -2,9 +2,9 @@
 # Top-level makefile for specpaxos
 #
 
-CC = cc
-CXX = c++
-LD = c++
+CC = clang-10
+CXX = clang++-10
+LD = clang++-10
 
 CFLAGS := -g -Wall -pthread -iquote.obj/gen -Wno-uninitialized -Wno-array-bounds
 CFLAGS += -O3 -DNASSERT  # bench mode

@@ -64,12 +64,12 @@ for task in rsync_tasks:
 
 def replica_cmd(index):
     return [
-        'timeout', f'{duration + 2}',
+        'timeout', f'{duration + 3}',
         proj_dir + 'bench/replica',
         '-c', proj_dir + 'run/nsl.txt',
         '-m', 'tombft',
         '-i', f'{index}',
-        '-w', '24',
+        '-w', '27',
     ]
 client_cmd = [
     'timeout', f'{duration + 3}',
@@ -78,7 +78,7 @@ client_cmd = [
     '-m', 'tombft',
     '-h', '11.0.0.101',
     '-u', f'{duration}',
-    '-t', '4',
+    '-t', '5',
 ]
 
 replica_task = [None] * 4
@@ -88,7 +88,7 @@ for i in range(4):
     replica_task[i].start()
 client_task = [
     node[5].run(client_cmd, return_output=True)
-    for _ in range(32)
+    for _ in range(20)
 ]
 print('Start')
 pyrem.task.Parallel(client_task).start(wait=True)

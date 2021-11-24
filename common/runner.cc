@@ -20,7 +20,7 @@ static void SetThreadAffinity(pthread_t thread, int core_id) {
 using std::thread;
 
 Latency_t driver_spin, solo_spin, solo_task;
-Latency_t worker_spin[WORKER_COUNT_MAX], worker_task[WORKER_COUNT_MAX];
+Latency_t worker_spin[WORKER_COUNT_MAX], worker_task[WORKER_COUNT_MAX], unstable_epilogue[WORKER_COUNT_MAX];
 
 Runner::Runner(int worker_thread_count) 
     : worker_thread_count(worker_thread_count), shutdown(false)
@@ -35,6 +35,7 @@ Runner::Runner(int worker_thread_count)
     for (int i = 0; i < worker_thread_count; i += 1) {
         _Latency_Init(&worker_spin[i], "");
         _Latency_Init(&worker_task[i], "");
+        _Latency_Init(&unstable_epilogue[i], "");
     }
 
     for (int i = 0; i < worker_thread_count; i += 1) {
@@ -60,7 +61,7 @@ Runner::Runner(int worker_thread_count)
         RunSoloThread();
     });
     epilogue_thread = thread([this]() {
-        RunEpilogueThread();
+        RunEpilogueThread(true, -1);
     });
 
     SetThreadAffinity(pthread_self(), 0);
@@ -96,18 +97,21 @@ Runner::~Runner() {
     solo_thread.join();
     epilogue_thread.join();
 
-    Latency_t sum_worker_spin, sum_worker_task;
+    Latency_t sum_worker_spin, sum_worker_task, sum_unstable_epilogue;
     _Latency_Init(&sum_worker_spin, "worker_spin");
     _Latency_Init(&sum_worker_task, "worker_task");
+    _Latency_Init(&sum_unstable_epilogue, "unstable_epilogue");
     for (int i = 0; i < worker_thread_count; i += 1) {
         Latency_Sum(&sum_worker_spin, &worker_spin[i]);
         Latency_Sum(&sum_worker_task, &worker_task[i]);
+        Latency_Sum(&sum_unstable_epilogue, &unstable_epilogue[i]);
     }
     Latency_Dump(&driver_spin);
     Latency_Dump(&solo_spin);
     Latency_Dump(&sum_worker_spin);
     Latency_Dump(&solo_task);
     Latency_Dump(&sum_worker_task);
+    Latency_Dump(&sum_unstable_epilogue);
 }
 
 auto Runner::PopEpilogue() -> Epilogue {
@@ -157,6 +161,7 @@ void Runner::RunWorkerThread(int worker_id) {
         solo_ring[slot] = solo;
         pending_solo[slot] = true;
 
+
         Epilogue epilogue = PopEpilogue();
         if (epilogue) {
             epilogue();
@@ -164,7 +169,12 @@ void Runner::RunWorkerThread(int worker_id) {
         } else {
             Latency_End(&worker_task[worker_id]);
         }
+
         // worker_idle[worker_id] = true;
+        // idle_hint = worker_id;
+        if (worker_idle[worker_id]) {
+            RunEpilogueThread(false, worker_id);
+        }
     }
 }
 
@@ -192,8 +202,15 @@ void Runner::RunSoloThread() {
     }
 }
 
-void Runner::RunEpilogueThread() {
+void Runner::RunEpilogueThread(bool stable, int worker_id) {
+    if (!stable) {
+        Latency_Start(&unstable_epilogue[worker_id]);
+    }
     while (!shutdown) {
+        if (!stable && !worker_idle[worker_id]) {
+            Latency_End(&unstable_epilogue[worker_id]);
+            return;
+        }
         Epilogue epilogue = PopEpilogue();
         if (epilogue) {
             epilogue();
@@ -204,7 +221,7 @@ void Runner::RunEpilogueThread() {
 void Runner::RunPrologue(Prologue prologue) {
     last_task += 1;
     Latency_Start(&driver_spin);
-    while (last_task > working_solo + SOLO_RING_SIZE) {
+    while (last_task >= working_solo + SOLO_RING_SIZE) {
         if (shutdown) {
             return;
         }
