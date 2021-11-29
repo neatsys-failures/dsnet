@@ -14,6 +14,7 @@ $(d)client $(o)client.o: $(OBJS-spec-client) $(OBJS-signedunrep-client) $(OBJS-t
 
 $(d)replica: $(o)replica.o $(LIB-udptransport) $(LIB-dpdktransport)
 $(d)replica $(o)replica.o: $(OBJS-vr-replica) $(OBJS-fastpaxos-replica) $(OBJS-unreplicated-replica) $(OBJS-nopaxos-replica)
-$(d)replica $(o)replica.o: $(OBJS-spec-replica) $(OBJS-signedunrep-replica) $(OBJS-tombft-replica)
+$(d)replica $(o)replica.o: $(OBJS-spec-replica) $(OBJS-signedunrep-replica) $(OBJS-tombft-replica) $(OBJS-hotstuff-replica)
+$(d)replica $(o)replica.o: $(OBJS-pbft-replica)
 
 BINS += $(d)client $(d)replica

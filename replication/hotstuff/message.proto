@@ -1,0 +1,50 @@
+syntax = "proto3";
+package dsnet.hotstuff.proto;
+
+import "common/request.proto";
+
+message Message {
+    oneof get {
+        dsnet.Request request = 1;
+        ReplyMessage reply = 2;
+        GenericMessage generic = 3;
+        VoteMessage vote = 4;
+    }
+}
+
+message ReplyMessage {
+    uint32 client_request = 1;
+    bytes result = 2;
+    int32 replica_index = 3;
+}
+
+// according to paper there should be separated justify QC field in generic and 
+// vote message
+// however in libhotstuff there is no such field in both message, and the usage
+// of this justify QC is for leader change which is not implemented here for now
+message GenericMessage {
+    Block block = 1;
+}
+
+// about block hash
+// because DSNet generally takes a linear log model instead of tree-shape 
+// blockchain (and resolve conflict ahead of appending), hash is simulated with
+// op number (i.e. array index)
+// at the same time op number is used as block depth
+
+message VoteMessage {
+    int32 replica_index = 1;
+    uint64 op_number = 2;
+}
+
+message Block {
+    uint64 op_number = 1;  // op number of first request in block
+    repeated Request request = 2;
+    QC justify = 3;
+}
+
+message QC {
+    uint64 op_number = 1;
+    // libhotstuff do this, so I do it too
+    repeated bytes signed_vote = 2;  // List[Signed[VoteMessage]]
+}

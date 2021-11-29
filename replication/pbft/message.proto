@@ -1,0 +1,46 @@
+syntax = "proto3";
+package dsnet.pbft.proto;
+
+import "common/request.proto";
+
+message PBFTMessage {
+    oneof sub {
+        dsnet.Request request = 1;
+        Reply reply = 2;
+        Preprepare preprepare = 3;
+        Prepare prepare = 4;
+        Commit commit = 5;
+    }
+}
+
+message Reply {
+    bytes result = 1;
+    uint64 request_number = 2;
+    int32 replica_id = 3;
+    uint32 view_number = 4;
+}
+
+message PreprepareCore {
+    uint32 view_number = 1;
+    uint64 op_number = 2;
+    bytes digest = 3;
+}
+
+message Preprepare {
+    bytes signed_core = 1;  // Signed[PreprepareCore]
+    dsnet.Request message = 2;
+}
+
+message Prepare {
+    uint32 view_number = 1;
+    uint64 op_number = 2;
+    bytes digest = 3;
+    int32 replica_id = 4;
+}
+
+message Commit {
+    uint32 view_number = 1;
+    uint64 op_number = 2;
+    bytes digest = 3;
+    int32 replica_id = 4;
+}
