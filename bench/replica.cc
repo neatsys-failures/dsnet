@@ -28,56 +28,50 @@
  *
  **********************************************************************/
 
-#include "lib/configuration.h"
 #include "common/replica.h"
+#include "lib/configuration.h"
 #include "lib/udptransport.h"
-#include "replication/vr/replica.h"
 #include "replication/fastpaxos/replica.h"
-#include "replication/unreplicated/replica.h"
+#include "replication/hotstuff/replica.h"
 #include "replication/nopaxos/replica.h"
 #include "replication/signedunrep/replica.h"
 #include "replication/tombft/replica.h"
+#include "replication/unreplicated/replica.h"
+#include "replication/vr/replica.h"
 
-#include <unistd.h>
-#include <stdlib.h>
-#include <vector>
 #include <fstream>
 #include <iostream>
+#include <stdlib.h>
+#include <unistd.h>
+#include <vector>
 
 #include <sched.h>
 #include <thread>
 
-static void
-Usage(const char *progName)
-{
+static void Usage(const char *progName) {
     fprintf(
-        stderr, 
+        stderr,
         "usage: %s "
         "-c conf-file [-R] -i replica-index "
         "-m unreplicated|signedunrep|vr|fastpaxos|nopaxos "
         "[-b batch-size] [-d packet-drop-rate] [-r packet-reorder-rate] "
         "[-w number-worker-thread]\n",
-        progName
-    );
+        progName);
     exit(1);
 }
 
-
-int
-main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     int index = -1;
     const char *configPath = NULL;
     double dropRate = 0.0;
     double reorderRate = 0.0;
     int batchSize = 1;
     bool recover = false;
-    int worker_thread_count = 8;
+    int n_worker_thread = 8;
 
     dsnet::AppReplica *nullApp = new dsnet::AppReplica();
 
-    enum
-    {
+    enum {
         PROTO_UNKNOWN,
         PROTO_UNREPLICATED,
         PROTO_SIGNEDUNREP,
@@ -85,22 +79,19 @@ main(int argc, char **argv)
         PROTO_FASTPAXOS,
         PROTO_SPEC,
         PROTO_NOPAXOS,
-        PROTO_TOMBFT
+        PROTO_TOMBFT,
+        PROTO_HOTSTUFF
     } proto = PROTO_UNKNOWN;
 
     // Parse arguments
     int opt;
     while ((opt = getopt(argc, argv, "b:c:d:i:m:r:R:w:")) != -1) {
         switch (opt) {
-        case 'b':
-        {
+        case 'b': {
             char *strtolPtr;
             batchSize = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0')
-                || (batchSize < 1))
-            {
-                fprintf(stderr,
-                        "option -b requires a numeric arg\n");
+            if ((*optarg == '\0') || (*strtolPtr != '\0') || (batchSize < 1)) {
+                fprintf(stderr, "option -b requires a numeric arg\n");
                 Usage(argv[0]);
             }
             break;
@@ -110,27 +101,24 @@ main(int argc, char **argv)
             configPath = optarg;
             break;
 
-        case 'd':
-        {
+        case 'd': {
             char *strtodPtr;
             dropRate = strtod(optarg, &strtodPtr);
             if ((*optarg == '\0') || (*strtodPtr != '\0') ||
                 ((dropRate < 0) || (dropRate >= 1))) {
-                fprintf(stderr,
-                        "option -d requires a numeric arg between 0 and 1\n");
+                fprintf(
+                    stderr,
+                    "option -d requires a numeric arg between 0 and 1\n");
                 Usage(argv[0]);
             }
             break;
         }
 
-        case 'i':
-        {
+        case 'i': {
             char *strtolPtr;
             index = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0') || (index < 0))
-            {
-                fprintf(stderr,
-                        "option -i requires a numeric arg\n");
+            if ((*optarg == '\0') || (*strtolPtr != '\0') || (index < 0)) {
+                fprintf(stderr, "option -i requires a numeric arg\n");
                 Usage(argv[0]);
             }
             break;
@@ -149,20 +137,22 @@ main(int argc, char **argv)
                 proto = PROTO_NOPAXOS;
             } else if (strcasecmp(optarg, "tombft") == 0) {
                 proto = PROTO_TOMBFT;
+            } else if (strcasecmp(optarg, "hotstuff") == 0) {
+                proto = PROTO_HOTSTUFF;
             } else {
                 fprintf(stderr, "unknown mode '%s'\n", optarg);
                 Usage(argv[0]);
             }
             break;
 
-        case 'r':
-        {
+        case 'r': {
             char *strtodPtr;
             reorderRate = strtod(optarg, &strtodPtr);
             if ((*optarg == '\0') || (*strtodPtr != '\0') ||
                 ((reorderRate < 0) || (reorderRate >= 1))) {
-                fprintf(stderr,
-                        "option -r requires a numeric arg between 0 and 1\n");
+                fprintf(
+                    stderr,
+                    "option -r requires a numeric arg between 0 and 1\n");
                 Usage(argv[0]);
             }
             break;
@@ -171,11 +161,12 @@ main(int argc, char **argv)
         case 'R':
             recover = true;
             break;
-        
+
         case 'w': {
             char *strtod_ptr;
-            worker_thread_count = strtod(optarg, &strtod_ptr);
-            if (*optarg == '\0' || *strtod_ptr != '\0' || worker_thread_count <= 0) {
+            n_worker_thread = strtod(optarg, &strtod_ptr);
+            if (*optarg == '\0' || *strtod_ptr != '\0' ||
+                n_worker_thread <= 0) {
                 Usage(argv[0]);
             }
             break;
@@ -207,15 +198,17 @@ main(int argc, char **argv)
     // Load configuration
     std::ifstream configStream(configPath);
     if (configStream.fail()) {
-        fprintf(stderr, "unable to read configuration file: %s\n",
-                configPath);
+        fprintf(stderr, "unable to read configuration file: %s\n", configPath);
         Usage(argv[0]);
     }
     dsnet::Configuration config(configStream);
 
     if (index >= config.n) {
-        fprintf(stderr, "replica index %d is out of bounds; "
-                "only %d replicas defined\n", index, config.n);
+        fprintf(
+            stderr,
+            "replica index %d is out of bounds; "
+            "only %d replicas defined\n",
+            index, config.n);
         Usage(argv[0]);
     }
 
@@ -226,11 +219,6 @@ main(int argc, char **argv)
     case PROTO_UNREPLICATED:
         replica = new dsnet::unreplicated::UnreplicatedReplica(
             config, index, !recover, &transport, nullApp);
-        break;
-
-    case PROTO_SIGNEDUNREP:
-        replica = new dsnet::signedunrep::SignedUnrepReplica(
-            config, "Steve", worker_thread_count, &transport, nullApp);
         break;
 
     case PROTO_VR:
@@ -248,9 +236,20 @@ main(int argc, char **argv)
             config, index, !recover, &transport, nullApp);
         break;
 
+    case PROTO_SIGNEDUNREP:
+        replica = new dsnet::signedunrep::SignedUnrepReplica(
+            config, "Steve", n_worker_thread, &transport, nullApp);
+        break;
+
     case PROTO_TOMBFT:
         replica = new dsnet::tombft::TOMBFTReplica(
-            config, index, "Steve", worker_thread_count, &transport, nullApp);
+            config, index, "Steve", n_worker_thread, &transport, nullApp);
+        break;
+
+    case PROTO_HOTSTUFF:
+        replica = new dsnet::hotstuff::HotStuffReplica(
+            config, index, "Steve", n_worker_thread, batchSize, &transport,
+            nullApp);
         break;
 
     default:

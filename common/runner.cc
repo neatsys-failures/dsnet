@@ -14,17 +14,17 @@ static void SetThreadAffinity(pthread_t thread, int core_id) {
     int status = pthread_setaffinity_np(thread, sizeof(mask), &mask);
     // local dev env don't have that many cores >_<
     // ASSERT(status == 0);
-    (void) status;
+    (void)status;
 }
 
 using std::thread;
 
 Latency_t driver_spin, solo_spin, solo_task;
-Latency_t worker_spin[WORKER_COUNT_MAX], worker_task[WORKER_COUNT_MAX], unstable_epilogue[WORKER_COUNT_MAX];
+Latency_t worker_spin[WORKER_COUNT_MAX], worker_task[WORKER_COUNT_MAX],
+    unstable_epilogue[WORKER_COUNT_MAX];
 
-Runner::Runner(int worker_thread_count) 
-    : worker_thread_count(worker_thread_count), shutdown(false)
-{
+Runner::Runner(int worker_thread_count)
+    : worker_thread_count(worker_thread_count), shutdown(false) {
     if (worker_thread_count > WORKER_COUNT_MAX) {
         Panic("Too many worker");
     }
@@ -53,16 +53,10 @@ Runner::Runner(int worker_thread_count)
     last_task = 0;
 
     for (int i = 0; i < worker_thread_count; i += 1) {
-        worker_threads[i] = thread([this, i]() {
-            RunWorkerThread(i);
-        });
+        worker_threads[i] = thread([this, i]() { RunWorkerThread(i); });
     }
-    solo_thread = thread([this]() {
-        RunSoloThread();
-    });
-    epilogue_thread = thread([this]() {
-        RunEpilogueThread(true, -1);
-    });
+    solo_thread = thread([this]() { RunSoloThread(); });
+    epilogue_thread = thread([this]() { RunEpilogueThread(true, -1); });
 
     SetThreadAffinity(pthread_self(), 0);
     SetThreadAffinity(solo_thread.native_handle(), 1);
@@ -161,7 +155,6 @@ void Runner::RunWorkerThread(int worker_id) {
         solo_ring[slot] = solo;
         pending_solo[slot] = true;
 
-
         Epilogue epilogue = PopEpilogue();
         if (epilogue) {
             epilogue();
@@ -230,7 +223,8 @@ void Runner::RunPrologue(Prologue prologue) {
     Latency_Start(&driver_spin);
     // int worker_id = last_task % worker_thread_count;
     static int worker_id;
-    worker_id = idle_hint != worker_id ? (int) idle_hint : (worker_id + 1) % worker_thread_count;
+    worker_id = idle_hint != worker_id ? (int)idle_hint
+                                       : (worker_id + 1) % worker_thread_count;
     while (!worker_idle[worker_id]) {
         if (shutdown) {
             return;
@@ -245,6 +239,7 @@ void Runner::RunPrologue(Prologue prologue) {
 }
 
 void Runner::RunEpilogue(Epilogue epilogue) {
+    Debug("working solo = %d", (int)working_solo);
     int slot = working_solo % EPILOGUE_RING_SIZE;
     if (pending_epilogue[slot]) {
         Panic("Epilogue overflow");
@@ -253,4 +248,4 @@ void Runner::RunEpilogue(Epilogue epilogue) {
     pending_epilogue[slot] = true;
 }
 
-}
+} // namespace dsnet

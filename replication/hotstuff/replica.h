@@ -12,6 +12,8 @@ namespace hotstuff {
 class HotStuffEntry : public LogEntry {
     HotStuffEntry(opnum_t op_number, const Request &request)
         : LogEntry(viewstamp_t(0, op_number), LOG_STATE_PREPARED, request) {}
+    HotStuffEntry(opnum_t op_number)
+        : LogEntry(viewstamp_t(0, op_number), LOG_STATE_NOOP, Request()) {}
 
 private:
     friend class HotStuffReplica;
@@ -22,20 +24,25 @@ class HotStuffReplica : public Replica {
 public:
     HotStuffReplica(
         const Configuration &config, int index, std::string identifier,
-        int n_thread, int batch_size_max, Transport *transport,
-        AppReplica *app);
+        int n_thread, int batch_size, Transport *transport, AppReplica *app);
     ~HotStuffReplica();
 
     void ReceiveMessage(
         const TransportAddress &remote, void *buf, size_t length) override;
 
 private:
+    // consts
     std::string identifier;
     Runner runner;
-    int batch_size_max;
+    int batch_size;
 
-    view_t view;
+    // single states
+    std::unique_ptr<Timeout> resend_vote_timeout;
+
     std::unique_ptr<proto::QC> generic_qc, locked_qc;
+    std::unique_ptr<proto::GenericMessage> pending_generic;
+
+    // aggregated states
     // in-construct QCs, only on primary, op number -> repica id -> partial sig
     // op number is the "hash" of block in vote message, we pretend it could
     // prove content matching for now
@@ -52,11 +59,11 @@ private:
             : remote(remote.clone()), client_request(0), has_reply(false) {}
     };
     std::unordered_map<uint64_t, ClientEntry> client_table;
-    std::vector<Request> pending_requests;
     Log log;
 
-    int GetPrimary(view_t view) const { return 0; }
-    bool IsPrimary() const { return replicaIdx == GetPrimary(view); }
+    // tolerant faulty leader not implemented
+    int GetPrimary() const { return 0; }
+    bool IsPrimary() const { return replicaIdx == GetPrimary(); }
 
     void HandleRequest(const TransportAddress &remote, const Request &request);
     void HandleVote(
@@ -68,6 +75,9 @@ private:
     // the `view` concept is omitted in the final "practical" version of
     // hotstuff, but I cannot think of a better name
     void EnterNextView(const proto::QC &justify);
+    void SendGeneric();
+    void SendVote(opnum_t op_number);
+    void ResetPendingGeneric();
 };
 
 } // namespace hotstuff

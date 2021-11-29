@@ -30,7 +30,10 @@ message GenericMessage {
 // because DSNet generally takes a linear log model instead of tree-shape 
 // blockchain (and resolve conflict ahead of appending), hash is simulated with
 // op number (i.e. array index)
-// at the same time op number is used as block depth
+// at the same time op number is used as block depth. In order to make sure that
+// later GenericMessage block is always deeper than previous ones, each block
+// virtually contains a NOOP request as its first request, so op_number always
+// increase except resending
 
 message VoteMessage {
     int32 replica_index = 1;
