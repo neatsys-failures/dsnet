@@ -17,13 +17,13 @@ namespace dsnet {
 // accomplish the following objectives:
 // * As long as there are enough number of workers, system overall throughput =
 //   solo throughput
-//   + "enough number" ideally -> at least
+//   + "enough number" ideally => at least
 //     (prologue latency + epilogue latency) / solo latency
 //     because of minor performance waving worker count should be a little bit
 //     more than it
 // * Solo and epilogue has higher priority than incoming prologue. It is
 // acceptable to execute existing solo and epilogue in any order. As the result,
-//   + the max number of working task is bounded, no unnecessary queue overflow
+//   + the max number of working task is bounded
 //   + tail latency get best-effort control, which helps close-loop benchmark to
 //   get full throughput
 // * When above two objectives are achieved minimize thread idle time, i.e. keep
@@ -40,25 +40,32 @@ public:
     void RunEpilogue(Epilogue epilogue);
 
 private:
-    std::atomic<bool> shutdown;
+#define WORKER_COUNT_MAX 128
+#define SOLO_RING_SIZE 800
+#define EPILOGUE_RING_SIZE 1000
 
-#define N_WORKER_MAX 128
-    int n_worker;
-    std::thread workers[N_WORKER_MAX];
-    struct WorkingPrologue {
-        Prologue task;
-        int id;
-    };
-    WorkingPrologue working_prologue[N_WORKER_MAX];
-    std::atomic<bool> worker_idle[N_WORKER_MAX];
-    std::atomic<int> idle_hint;
-
-    std::atomic<int> last_solo;
-    Epilogue working_epilogue;
-
-    int prologue_id;
-
+    int worker_thread_count;
+    std::thread worker_threads[WORKER_COUNT_MAX], solo_thread, epilogue_thread;
+    volatile bool shutdown;
     void RunWorkerThread(int worker_id);
+    void RunSoloThread();
+    void RunEpilogueThread(bool stable, int worker_id);
+    Epilogue PopEpilogue();
+
+    std::atomic<bool> worker_idle[WORKER_COUNT_MAX];
+    std::atomic<int> idle_hint;
+    Prologue working_prologue[WORKER_COUNT_MAX];
+    int task_order[WORKER_COUNT_MAX];
+
+    Solo solo_ring[SOLO_RING_SIZE];
+    std::atomic<int> working_solo;
+    std::atomic<bool> pending_solo[SOLO_RING_SIZE];
+
+    Epilogue epilogue_ring[EPILOGUE_RING_SIZE];
+    std::atomic<bool> pending_epilogue[EPILOGUE_RING_SIZE];
+    std::atomic<int> last_epilogue;
+
+    int last_task;
 };
 
 } // namespace dsnet
