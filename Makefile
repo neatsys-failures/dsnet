@@ -8,7 +8,7 @@ LD = clang++-10
 
 CFLAGS := -g -Wall -pthread -iquote.obj/gen -Wno-uninitialized -Wno-array-bounds
 CFLAGS += -O3 -DNASSERT  # bench mode
-# CFLAGS += -DDSNET_NO_SIGN
+# CFLAGS += -DDSNET_SEQUENTIAL_RUNNER
 CFLAGS += -DDSNET_TOM_FPGA_DEMO
 
 CXXFLAGS := -std=c++14
