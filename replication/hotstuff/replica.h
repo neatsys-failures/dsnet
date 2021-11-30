@@ -38,6 +38,7 @@ private:
 
     // single states
     std::unique_ptr<Timeout> resend_vote_timeout;
+    std::unique_ptr<Timeout> send_generic_timeout;
 
     std::unique_ptr<proto::QC> generic_qc, locked_qc;
     std::unique_ptr<proto::GenericMessage> pending_generic;
@@ -55,8 +56,9 @@ private:
         proto::ReplyMessage reply_message;
         bool has_reply;
 
-        ClientEntry(const TransportAddress &remote)
-            : remote(remote.clone()), client_request(0), has_reply(false) {}
+        ClientEntry(const TransportAddress &remote, opnum_t request_number)
+            : remote(remote.clone()), client_request(request_number),
+              has_reply(false) {}
     };
     std::unordered_map<uint64_t, ClientEntry> client_table;
     Log log;

@@ -1,6 +1,7 @@
 #include "replication/hotstuff/replica.h"
 #include "common/signedadapter.h"
 #include "lib/assert.h"
+#include <cstdlib>
 
 #define RDebug(fmt, ...) Debug("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
 #define RNotice(fmt, ...) Notice("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
@@ -20,6 +21,8 @@ HotStuffReplica::HotStuffReplica(
     : Replica(config, 0, index, false, transport, app), identifier(identifier),
       runner(n_thread), batch_size(batch_size), log(false) //
 {
+    setenv("DEBUG", "replica.cc", 1);
+
     resend_vote_timeout =
         unique_ptr<Timeout>(new Timeout(transport, 1000, [this]() {
             runner.RunPrologue([this]() {
@@ -36,12 +39,31 @@ HotStuffReplica::HotStuffReplica(
                 };
             });
         }));
-
-    if (!IsPrimary()) {
-        runner.RunPrologue([this]() { return [this]() { SendVote(0); }; });
-    } else {
-        ResetPendingGeneric();
+    if (IsPrimary()) {
+        send_generic_timeout =
+            unique_ptr<Timeout>(new Timeout(transport, 200, [this]() {
+                runner.RunPrologue([this]() {
+                    return [this]() {
+                        if (!IsPrimary()) {
+                            NOT_REACHABLE();
+                        }
+                        RNotice("Send generic on timeout");
+                        SendGeneric();
+                    };
+                });
+            }));
+        send_generic_timeout->Start();
     }
+
+    runner.RunPrologue([this]() {
+        return [this]() {
+            if (!IsPrimary()) {
+                SendVote(0);
+            } else {
+                ResetPendingGeneric();
+            }
+        };
+    });
 }
 
 HotStuffReplica::~HotStuffReplica() {}
@@ -116,13 +138,17 @@ void HotStuffReplica::HandleRequest(
             }
             return;
         }
+        entry.client_request = request.clientreqid();
+        entry.has_reply = false;
     } else {
-        client_table.emplace(request.clientid(), ClientEntry(remote));
+        client_table.emplace(
+            request.clientid(), ClientEntry(remote, request.clientreqid()));
     }
 
     if (IsPrimary()) {
         opnum_t op_number = pending_generic->block().op_number() +
-                            pending_generic->block().request_size();
+                            pending_generic->block().request_size() + 1;
+        RDebug("Assign request: op number = %lu", op_number);
         log.Append(new HotStuffEntry(op_number, request));
 
         *pending_generic->mutable_block()->add_request() = request;
@@ -180,6 +206,9 @@ void HotStuffReplica::HandleGeneric(
     SendVote(generic.block().op_number());
 
     opnum_t op_offset = generic.block().op_number();
+    RDebug(
+        "Generic block: op number = %lu (+%u)", op_offset,
+        generic.block().request_size());
     if (op_offset != log.LastOpnum() + 1) {
         NOT_IMPLEMENTED(); // state transfer
     }
@@ -211,13 +240,14 @@ void HotStuffReplica::EnterNextView(const proto::QC &justify) {
     locked_qc = move(generic_qc);
     generic_qc = unique_ptr<proto::QC>(new proto::QC(justify));
 
-    if (IsPrimary()) {
-        // sending GenericMessage unconditionally to simply ensure liveness of
-        // last few requests
-        // to reduce overhead, it is able to skip this sending and add close
-        // batch timeout
-        SendGeneric();
-    }
+    // if (IsPrimary()) {
+    //     // sending GenericMessage unconditionally to simply ensure liveness
+    //     of
+    //     // last few requests
+    //     // to reduce overhead, it is able to skip this sending and add close
+    //     // batch timeout
+    //     SendGeneric();
+    // }
 
     if (!commit_qc || commit_qc->op_number() == 0) {
         return;
@@ -246,6 +276,11 @@ void HotStuffReplica::EnterNextView(const proto::QC &justify) {
             const TransportAddress &remote = *iter->second.remote;
             // Do this in epilogue?
             transport->SendMessage(this, remote, PBMessage(message));
+
+            iter->second.reply_message = message;
+            iter->second.has_reply = true;
+        } else {
+            RWarning("Client entry not found, skip send reply");
         }
     }
 }
@@ -254,12 +289,18 @@ void HotStuffReplica::SendGeneric() {
     if (!IsPrimary()) {
         NOT_REACHABLE();
     }
+    send_generic_timeout->Reset();
 
     if (!generic_qc) {
         RWarning("Generic QC not present, skip send GenericMessage");
         return;
     }
     *pending_generic->mutable_block()->mutable_justify() = *generic_qc;
+    RDebug(
+        "SendGeneric: block op number = %lu (+%u), justify op number = %lu",
+        pending_generic->block().op_number(),
+        pending_generic->block().request_size(),
+        pending_generic->block().justify().op_number());
 
     runner.RunEpilogue([this, escaping_generic = pending_generic.release()]() {
         auto generic = unique_ptr<proto::GenericMessage>(escaping_generic);
@@ -276,6 +317,7 @@ void HotStuffReplica::SendGeneric() {
 void HotStuffReplica::ResetPendingGeneric() {
     pending_generic =
         unique_ptr<proto::GenericMessage>(new proto::GenericMessage);
+    RDebug("Reset pending generic: op number = %lu", log.LastOpnum() + 1);
     pending_generic->mutable_block()->set_op_number(log.LastOpnum() + 1);
     log.Append(new HotStuffEntry(log.LastOpnum() + 1));
 }

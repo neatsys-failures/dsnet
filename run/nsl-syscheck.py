@@ -1,58 +1,39 @@
-import re
+import sys
 import pathlib
-import pyrem.host
+sys.path.append(pathlib.Path() / 'run')
+import common
 import pyrem.task
 
-print('Standard NSL system performance check')
+common.setup('Standard NSL system performance check')
 print('Expect ~360000 <=42')
-proj_dir = '/home/cowsay/dsnet/'
-local_dir = '/work/dsnet/'
-for i in (1, 5):
-    pyrem.host.LocalHost().run([
-        'rsync', '-a', local_dir, f'nsl-node{i}:' + proj_dir[:-1]
-    ]).start(wait=True)
 
-replica_cmd = [
-    'taskset', '0x01',
-    proj_dir + 'bench/replica',
-    '-c', proj_dir + 'run/nsl.txt',
-    '-m', 'unreplicated',
-    '-i', '0',
-]
+duration = 10
+def replica_cmd(index):
+    return [
+        'timeout', f'{duration + 3}',
+        'taskset', '0x1',
+        common.proj_dir + 'bench/replica',
+        '-c', common.proj_dir + 'run/nsl.txt',
+        '-m', 'unreplicated',
+        '-i', f'{index}',
+    ]
 client_cmd = [
-    'timeout', '12',
-    proj_dir  + 'bench/client',
-    '-c', proj_dir + 'run/nsl.txt',
+    'timeout', f'{duration + 3}',
+    common.proj_dir  + 'bench/client',
+    '-c', common.proj_dir + 'run/nsl.txt',
     '-m', 'unreplicated',
     '-h', '11.0.0.101',
-    '-u', '10',
+    '-u', f'{duration}',
+    '-t', '4',
 ]
-node = [
-    pyrem.host.RemoteHost('nsl-node1'),
-    pyrem.host.RemoteHost('nsl-node2'),
-    pyrem.host.RemoteHost('nsl-node3'),
-    pyrem.host.RemoteHost('nsl-node4'),
-    pyrem.host.RemoteHost('nsl-node5'),
-]
-node[0].run(replica_cmd, quiet=True).start()
+
+replica_task = common.node[1].run(replica_cmd(0), kill_remote=False, return_output=True)
+replica_task.start()
 client_task = [
-    node[4].run(client_cmd  # + ['-s', proj_dir + f'stat-{i}', '-i', '1']
-    , return_output=True)
-    for i in range(14)
+    common.node[5].run(client_cmd, return_output=True)
+    for _ in range(12)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
-throughput_sum = 0
-median_latency_max = 0
-for i, task in enumerate(client_task):
-    output = task.return_values['stderr'].decode()
-    match = re.search(r'Total throughput is (\d+) ops/sec$', output, re.MULTILINE)
-    if match is not None:
-        throughput_sum += int(match[1])
-    else:
-        print(f'warning: no data from client-{i}')
-        with open(pathlib.Path() / 'logs' / f'client-{i}.txt', 'w') as log_file:
-            log_file.write(output)
-        continue
-    match = re.search(r'Median latency is (\d+) us$', output, re.MULTILINE)
-    median_latency_max = max(median_latency_max, int(match[1]))
-print(f'        {throughput_sum}   {median_latency_max}')
+
+common.wait_replica([replica_task], 0)
+common.wait_client(client_task)

@@ -10,7 +10,7 @@ $(o)benchmark.o: $(LIB-latency)
 $(d)client: $(o)client.o $(LIB-udptransport) $(LIB-dpdktransport)
 $(d)client $(o)client.o: $(OBJS-benchmark)
 $(d)client $(o)client.o: $(OBJS-vr-client) $(OBJS-fastpaxos-client) $(OBJS-unreplicated-client) $(OBJS-nopaxos-client)
-$(d)client $(o)client.o: $(OBJS-spec-client) $(OBJS-signedunrep-client) $(OBJS-tombft-client)
+$(d)client $(o)client.o: $(OBJS-spec-client) $(OBJS-signedunrep-client) $(OBJS-tombft-client) $(OBJS-hotstuff-client)
 
 $(d)replica: $(o)replica.o $(LIB-udptransport) $(LIB-dpdktransport)
 $(d)replica $(o)replica.o: $(OBJS-vr-replica) $(OBJS-fastpaxos-replica) $(OBJS-unreplicated-replica) $(OBJS-nopaxos-replica)

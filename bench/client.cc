@@ -29,46 +29,44 @@
  **********************************************************************/
 
 #include "lib/assert.h"
+#include "lib/dpdktransport.h"
 #include "lib/message.h"
 #include "lib/udptransport.h"
-#include "lib/dpdktransport.h"
 
 #include "bench/benchmark.h"
 #include "common/client.h"
 #include "lib/configuration.h"
-#include "replication/vr/client.h"
 #include "replication/fastpaxos/client.h"
-#include "replication/unreplicated/client.h"
+#include "replication/hotstuff/client.h"
 #include "replication/nopaxos/client.h"
 #include "replication/signedunrep/client.h"
 #include "replication/tombft/client.h"
+#include "replication/unreplicated/client.h"
+#include "replication/vr/client.h"
 
-#include <unistd.h>
-#include <stdlib.h>
 #include <fstream>
+#include <stdlib.h>
+#include <unistd.h>
 
-static void
-Usage(const char *progName)
-{
+static void Usage(const char *progName) {
     fprintf(
-        stderr, 
+        stderr,
         "usage: %s "
-        "[-n requests] [-t threads] [-w warmup-secs] [-s stats-file] [-d delay-ms] "
-        "[-u duration-sec] [-p udp|dpdk] [-v device] [-x device-port] [-z transport-cmdline] "
-        "-c conf-file -h host-address -m unreplicated|signedunrep|vr|fastpaxos|nopaxos\n",
-        progName
-    );
+        "[-n requests] [-t threads] [-w warmup-secs] [-s stats-file] [-d "
+        "delay-ms] "
+        "[-u duration-sec] [-p udp|dpdk] [-v device] [-x device-port] [-z "
+        "transport-cmdline] "
+        "-c conf-file -h host-address -m "
+        "unreplicated|signedunrep|vr|fastpaxos|nopaxos\n",
+        progName);
     exit(1);
 }
 
-void
-PrintReply(const string &request, const string &reply)
-{
+void PrintReply(const string &request, const string &reply) {
     Notice("Request succeeded; got response %s", reply.c_str());
 }
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     const char *configPath = NULL;
     int numClients = 1;
     int duration = 1;
@@ -77,8 +75,7 @@ int main(int argc, char **argv)
     std::string host, dev, transport_cmdline;
     int dev_port = 0;
 
-    enum
-    {
+    enum {
         PROTO_UNKNOWN,
         PROTO_UNREPLICATED,
         PROTO_SIGNEDUNREP,
@@ -86,14 +83,11 @@ int main(int argc, char **argv)
         PROTO_FASTPAXOS,
         PROTO_SPEC,
         PROTO_NOPAXOS,
-        PROTO_TOMBFT
+        PROTO_TOMBFT,
+        PROTO_HOTSTUFF
     } proto = PROTO_UNKNOWN;
 
-    enum
-    {
-        TRANSPORT_UDP,
-        TRANSPORT_DPDK
-    } transport_type = TRANSPORT_UDP;
+    enum { TRANSPORT_UDP, TRANSPORT_DPDK } transport_type = TRANSPORT_UDP;
 
     string statsFile;
 
@@ -105,14 +99,11 @@ int main(int argc, char **argv)
             configPath = optarg;
             break;
 
-        case 'd':
-        {
+        case 'd': {
             char *strtolPtr;
             delay = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0'))
-            {
-                fprintf(stderr,
-                        "option -d requires a numeric arg\n");
+            if ((*optarg == '\0') || (*strtolPtr != '\0')) {
+                fprintf(stderr, "option -d requires a numeric arg\n");
                 Usage(argv[0]);
             }
             break;
@@ -126,18 +117,15 @@ int main(int argc, char **argv)
             dev = std::string(optarg);
             break;
 
-        case 'x':
-        {
+        case 'x': {
             char *strtol_ptr;
             dev_port = strtoul(optarg, &strtol_ptr, 10);
             if ((*optarg == '\0') || (*strtol_ptr != '\0')) {
-                fprintf(stderr,
-                        "option -x requires a numeric arg\n");
+                fprintf(stderr, "option -x requires a numeric arg\n");
                 Usage(argv[0]);
             }
             break;
         }
-
 
         case 's':
             statsFile = string(optarg);
@@ -156,49 +144,40 @@ int main(int argc, char **argv)
                 proto = PROTO_NOPAXOS;
             } else if (strcasecmp(optarg, "tombft") == 0) {
                 proto = PROTO_TOMBFT;
-            }
-            else {
+            } else if (strcasecmp(optarg, "hotstuff") == 0) {
+                proto = PROTO_HOTSTUFF;
+            } else {
                 fprintf(stderr, "unknown mode '%s'\n", optarg);
                 Usage(argv[0]);
             }
             break;
 
-        case 'u':
-        {
+        case 'u': {
             char *strtolPtr;
             duration = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0') ||
-                (duration <= 0))
-            {
-                fprintf(stderr,
-                        "option -n requires a numeric arg\n");
+            if ((*optarg == '\0') || (*strtolPtr != '\0') || (duration <= 0)) {
+                fprintf(stderr, "option -n requires a numeric arg\n");
                 Usage(argv[0]);
             }
             break;
         }
 
-        case 't':
-        {
+        case 't': {
             char *strtolPtr;
             numClients = strtoul(optarg, &strtolPtr, 10);
             if ((*optarg == '\0') || (*strtolPtr != '\0') ||
-                (numClients <= 0))
-            {
-                fprintf(stderr,
-                        "option -t requires a numeric arg\n");
+                (numClients <= 0)) {
+                fprintf(stderr, "option -t requires a numeric arg\n");
                 Usage(argv[0]);
             }
             break;
         }
 
-        case 'i':
-        {
+        case 'i': {
             char *strtolPtr;
             tputInterval = strtoul(optarg, &strtolPtr, 10);
-            if ((*optarg == '\0') || (*strtolPtr != '\0'))
-            {
-                fprintf(stderr,
-                        "option -d requires a numeric arg\n");
+            if ((*optarg == '\0') || (*strtolPtr != '\0')) {
+                fprintf(stderr, "option -d requires a numeric arg\n");
                 Usage(argv[0]);
             }
             break;
@@ -242,20 +221,20 @@ int main(int argc, char **argv)
     // Load configuration
     std::ifstream configStream(configPath);
     if (configStream.fail()) {
-        fprintf(stderr, "unable to read configuration file: %s\n",
-                configPath);
+        fprintf(stderr, "unable to read configuration file: %s\n", configPath);
         Usage(argv[0]);
     }
     dsnet::Configuration config(configStream);
 
     dsnet::Transport *transport;
     switch (transport_type) {
-        case TRANSPORT_UDP:
-            transport = new dsnet::UDPTransport(0, 0);
-            break;
-        case TRANSPORT_DPDK:
-            transport = new dsnet::DPDKTransport(dev_port, 0, 1, 0, transport_cmdline);
-            break;
+    case TRANSPORT_UDP:
+        transport = new dsnet::UDPTransport(0, 0);
+        break;
+    case TRANSPORT_DPDK:
+        transport =
+            new dsnet::DPDKTransport(dev_port, 0, 1, 0, transport_cmdline);
+        break;
     }
 
     std::vector<dsnet::Client *> clients;
@@ -266,11 +245,8 @@ int main(int argc, char **argv)
         dsnet::Client *client;
         switch (proto) {
         case PROTO_UNREPLICATED:
-            client = new dsnet::unreplicated::UnreplicatedClient(config, addr, transport);
-            break;
-
-        case PROTO_SIGNEDUNREP:
-            client = new dsnet::signedunrep::SignedUnrepClient(config, addr, "Alex", transport);
+            client = new dsnet::unreplicated::UnreplicatedClient(
+                config, addr, transport);
             break;
 
         case PROTO_VR:
@@ -278,25 +254,35 @@ int main(int argc, char **argv)
             break;
 
         case PROTO_FASTPAXOS:
-            client = new dsnet::fastpaxos::FastPaxosClient(config, addr, transport);
+            client =
+                new dsnet::fastpaxos::FastPaxosClient(config, addr, transport);
             break;
 
         case PROTO_NOPAXOS:
             client = new dsnet::nopaxos::NOPaxosClient(config, addr, transport);
             break;
 
+        case PROTO_SIGNEDUNREP:
+            client = new dsnet::signedunrep::SignedUnrepClient(
+                config, addr, "Alex", transport);
+            break;
+
         case PROTO_TOMBFT:
-            client = new dsnet::tombft::TOMBFTClient(config, addr, "Alex", transport);
+            client = new dsnet::tombft::TOMBFTClient(
+                config, addr, "Alex", transport);
+            break;
+
+        case PROTO_HOTSTUFF:
+            client = new dsnet::hotstuff::HotStuffClient(
+                config, addr, "Alex", transport);
             break;
 
         default:
             NOT_REACHABLE();
         }
 
-        dsnet::BenchmarkClient *bench =
-            new dsnet::BenchmarkClient(*client, *transport,
-                                       duration, delay,
-                                       tputInterval);
+        dsnet::BenchmarkClient *bench = new dsnet::BenchmarkClient(
+            *client, *transport, duration, delay, tputInterval);
 
         transport->Timer(0, [=]() { bench->Start(); });
         clients.push_back(client);
@@ -304,101 +290,95 @@ int main(int argc, char **argv)
     }
 
     dsnet::Timeout checkTimeout(transport, 100, [&]() {
-            for (auto x : benchClients) {
-                if (!x->done) {
-                    return;
+        for (auto x : benchClients) {
+            if (!x->done) {
+                return;
+            }
+        }
+        Notice("All clients done.");
+
+        Latency_t sum;
+        _Latency_Init(&sum, "total");
+        std::map<int, int> agg_latencies;
+        std::map<uint64_t, int> agg_throughputs;
+        uint64_t agg_ops = 0;
+        for (unsigned int i = 0; i < benchClients.size(); i++) {
+            Latency_Sum(&sum, &benchClients[i]->latency);
+            for (const auto &kv : benchClients[i]->latencies) {
+                agg_latencies[kv.first] += kv.second;
+            }
+            for (const auto &kv : benchClients[i]->throughputs) {
+                agg_throughputs[kv.first] += kv.second * (1000 / tputInterval);
+            }
+            agg_ops += benchClients[i]->completedOps;
+        }
+        Latency_Dump(&sum);
+
+        Notice("Total throughput is %ld ops/sec", agg_ops / duration);
+        enum class Mode { kMedian, k90, k95, k99 };
+        uint64_t count = 0;
+        int median, p90, p95, p99;
+        Mode mode = Mode::kMedian;
+        for (const auto &kv : agg_latencies) {
+            count += kv.second;
+            switch (mode) {
+            case Mode::kMedian:
+                if (count >= agg_ops / 2) {
+                    median = kv.first;
+                    Notice("Median latency is %d us", median);
+                    mode = Mode::k90;
+                    // fall through
+                } else {
+                    break;
+                }
+            case Mode::k90:
+                if (count >= agg_ops * 90 / 100) {
+                    p90 = kv.first;
+                    Notice("90th percentile latency is %d us", p90);
+                    mode = Mode::k95;
+                    // fall through
+                } else {
+                    break;
+                }
+            case Mode::k95:
+                if (count >= agg_ops * 95 / 100) {
+                    p95 = kv.first;
+                    Notice("95th percentile latency is %d us", p95);
+                    mode = Mode::k99;
+                    // fall through
+                } else {
+                    break;
+                }
+            case Mode::k99:
+                if (count >= agg_ops * 99 / 100) {
+                    p99 = kv.first;
+                    Notice("99th percentile latency is %d us", p99);
+                    goto done;
+                } else {
+                    break;
                 }
             }
-            Notice("All clients done.");
+        }
 
-            Latency_t sum;
-            _Latency_Init(&sum, "total");
-            std::map<int, int> agg_latencies;
-            std::map<uint64_t, int> agg_throughputs;
-            uint64_t agg_ops = 0;
-            for (unsigned int i = 0; i < benchClients.size(); i++) {
-                Latency_Sum(&sum, &benchClients[i]->latency);
-                for (const auto &kv : benchClients[i]->latencies) {
-                    agg_latencies[kv.first] += kv.second;
-                }
-                for (const auto &kv : benchClients[i]->throughputs) {
-                    agg_throughputs[kv.first] += kv.second * (1000/tputInterval);
-                }
-                agg_ops += benchClients[i]->completedOps;
-            }
-            Latency_Dump(&sum);
-
-            Notice("Total throughput is %ld ops/sec", agg_ops / duration);
-            enum class Mode {
-                kMedian,
-                k90,
-                k95,
-                k99
-            };
-            uint64_t count = 0;
-            int median, p90, p95, p99;
-            Mode mode = Mode::kMedian;
+    done:
+        if (statsFile.size() > 0) {
+            std::ofstream fs(statsFile.c_str(), std::ios::out);
+            fs << agg_ops / duration << std::endl;
+            fs << median << " " << p90 << " " << p95 << " " << p99 << std::endl;
             for (const auto &kv : agg_latencies) {
-                count += kv.second;
-                switch (mode) {
-                    case Mode::kMedian:
-                        if (count >= agg_ops/2) {
-                            median = kv.first;
-                            Notice("Median latency is %d us", median);
-                            mode = Mode::k90;
-                            // fall through
-                        } else {
-                            break;
-                        }
-                    case Mode::k90:
-                        if (count >= agg_ops*90/100) {
-                            p90 = kv.first;
-                            Notice("90th percentile latency is %d us", p90);
-                            mode = Mode::k95;
-                            // fall through
-                        } else {
-                            break;
-                        }
-                    case Mode::k95:
-                        if (count >= agg_ops*95/100) {
-                            p95 = kv.first;
-                            Notice("95th percentile latency is %d us", p95);
-                            mode = Mode::k99;
-                            // fall through
-                        } else {
-                            break;
-                        }
-                    case Mode::k99:
-                        if (count >= agg_ops*99/100) {
-                            p99 = kv.first;
-                            Notice("99th percentile latency is %d us", p99);
-                            goto done;
-                        } else {
-                            break;
-                        }
-                }
+                fs << kv.first << " " << kv.second << std::endl;
             }
-
-done:
-            if (statsFile.size() > 0) {
-                std::ofstream fs(statsFile.c_str(),
-                        std::ios::out);
-                fs << agg_ops / duration << std::endl;
-                fs << median << " " << p90 << " " << p95 << " " << p99 << std::endl;
-                for (const auto &kv : agg_latencies) {
+            fs.close();
+            if (agg_throughputs.size() > 0) {
+                fs.open(statsFile.append("_tputs").c_str());
+                for (const auto &kv : agg_throughputs) {
                     fs << kv.first << " " << kv.second << std::endl;
                 }
-                fs.close();
-                if (agg_throughputs.size() > 0) {
-                    fs.open(statsFile.append("_tputs").c_str());
-                    for (const auto &kv : agg_throughputs) {
-                        fs << kv.first << " " << kv.second << std::endl;
-                    }
-                }
-                fs.close();
             }
-            exit(0);
-        });
+            fs.close();
+        }
+        exit(0);
+    });
     checkTimeout.Start();
 
     transport->Run();

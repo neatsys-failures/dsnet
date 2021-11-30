@@ -1,5 +1,7 @@
 #pragma once
 
+#include <mutex>
+
 #include <rte_ether.h>
 #include <rte_byteorder.h>
 #include <rte_timer.h>

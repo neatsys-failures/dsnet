@@ -3,36 +3,43 @@ import pathlib
 sys.path.append(pathlib.Path() / 'run')
 import common
 import pyrem.task
+import time
 
-common.setup('Baseline performance')
+common.setup('HotStuff performance')
 
-duration = 10
+duration = 1
 def replica_cmd(index):
     return [
         'timeout', f'{duration + 3}',
         common.proj_dir + 'bench/replica',
         '-c', common.proj_dir + 'run/nsl.txt',
-        '-m', 'signedunrep',
+        '-m', 'hotstuff',
         '-i', f'{index}',
-        '-w', '27',
+        '-w', '1',
+        '-b', '20',
     ]
 client_cmd = [
     'timeout', f'{duration + 3}',
     common.proj_dir  + 'bench/client',
     '-c', common.proj_dir + 'run/nsl.txt',
-    '-m', 'signedunrep',
+    '-m', 'hotstuff',
     '-h', '11.0.0.101',
     '-u', f'{duration}',
-    '-t', '4',
+    '-t', '40',
 ]
 
-replica_task = common.node[1].run(replica_cmd(0), kill_remote=False, return_output=True)
-replica_task.start()
+replica_task = [None] * 4
+for i in (1, 2, 3, 0):
+    # if i == 1: continue
+    replica_task[i] = common.node[i + 1].run(replica_cmd(i), kill_remote=False, return_output=True)
+    replica_task[i].start()
+time.sleep(0.1)
 client_task = [
     common.node[5].run(client_cmd, return_output=True)
-    for _ in range(20)
+    for _ in range(10)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
 
-common.wait_replica([replica_task], 0)
+for i in range(4):
+    common.wait_replica(replica_task, i)
 common.wait_client(client_task)
