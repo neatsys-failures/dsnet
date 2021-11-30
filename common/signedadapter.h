@@ -33,25 +33,11 @@ public:
     std::string Identifier() const { return identifier; }
     bool IsVerified() const { return is_verified; }
     const std::string &Signature() const { return signature; }
-
-    // auxiliry method, perform verification on in-memory parsed (or more
-    // accurate, artifact) packet currently mainly for weird logic in HotStuff
-    // (in combination of weird API of Message/Adapter)
-    // The following:
-    //   SignedAdapter signed_layer(inner, id);
-    //   assert(signed_layer.DoVerify(signature));
-    // is equal to:
-    //   inner.Serialize(buf + offset);
-    //   <put id and signature to proper location in buf to compose a signed
-    //   layout>
-    //   SignedAdapter signed_layer(inner, id);
-    //   signed_layer.Parse(buf, size);
-    //   assert(signed_layer.IsVerified());
-    bool DoVerify(const std::string &signature) const;
+    const std::string &Digest() const { return digest; }
 
 private:
     Message &inner_message;
-    std::string identifier, signature;
+    std::string identifier, signature, digest;
     bool is_verified;
 
     void ParseNoVerify(const void *buf, size_t size);

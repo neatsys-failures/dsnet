@@ -6,10 +6,9 @@ import "common/request.proto";
 message PBFTMessage {
     oneof sub {
         dsnet.Request request = 1;
-        Reply reply = 2;
-        Preprepare preprepare = 3;
-        Prepare prepare = 4;
-        Commit commit = 5;
+        Preprepare preprepare = 2;
+        Prepare prepare = 3;
+        Commit commit = 4;
     }
 }
 
@@ -20,15 +19,15 @@ message Reply {
     uint32 view_number = 4;
 }
 
-message PreprepareCore {
+// in PBFT paper, only view, op and digest are protected by primary's signature
+// to keep a unified form that all PBFTMessage are transmitted with a 
+// signed-warpper, Preprepare's signature unnecessarily cover client's request
+// in this implementation. the overhead should be small
+message Preprepare {
     uint32 view_number = 1;
     uint64 op_number = 2;
     bytes digest = 3;
-}
-
-message Preprepare {
-    bytes signed_core = 1;  // Signed[PreprepareCore]
-    dsnet.Request message = 2;
+    bytes signed_message = 4;  // Signed[PBFTMessage::dsnet.Request]
 }
 
 message Prepare {

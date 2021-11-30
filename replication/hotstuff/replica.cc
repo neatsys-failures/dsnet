@@ -219,7 +219,7 @@ void HotStuffReplica::HandleGeneric(
     }
     if ( //
         !generic_qc ||
-        generic.block().justify().op_number() >= generic_qc->op_number() //
+        generic.block().justify().op_number() > generic_qc->op_number() //
     ) {
         EnterNextView(generic.block().justify());
     }

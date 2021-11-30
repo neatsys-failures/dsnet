@@ -27,7 +27,7 @@ client_cmd = [
     '-t', '4',
 ]
 
-replica_task = common.node[1].run(replica_cmd(0), kill_remote=False, return_output=True)
+replica_task = common.node[1].run(replica_cmd(0), return_output=True)
 replica_task.start()
 client_task = [
     common.node[5].run(client_cmd, return_output=True)

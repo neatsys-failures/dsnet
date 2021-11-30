@@ -12,4 +12,4 @@ OBJS-pbft-client := \
 OBJS-pbft-replica := \
 	$(o)replica.o $(o)message.o $(OBJS-replica) \
 	$(LIB-message) $(LIB-configuration) $(LIB-pbmessage) $(LIB-signedadapter) \
-	$(LIB-runner)
+	$(LIB-runner) .obj/sequencer/sequencer.o  # hack for reusing BufferMessage

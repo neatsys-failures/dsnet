@@ -15,8 +15,8 @@ def replica_cmd(index):
         '-c', common.proj_dir + 'run/nsl.txt',
         '-m', 'hotstuff',
         '-i', f'{index}',
-        '-w', '1',
-        '-b', '20',
+        '-w', '10',
+        # '-b', '20',
     ]
 client_cmd = [
     'timeout', f'{duration + 3}',
@@ -25,18 +25,18 @@ client_cmd = [
     '-m', 'hotstuff',
     '-h', '11.0.0.101',
     '-u', f'{duration}',
-    '-t', '40',
+    '-t', '4',
 ]
 
 replica_task = [None] * 4
 for i in (1, 2, 3, 0):
     # if i == 1: continue
-    replica_task[i] = common.node[i + 1].run(replica_cmd(i), kill_remote=False, return_output=True)
+    replica_task[i] = common.node[i + 1].run(replica_cmd(i), return_output=True)
     replica_task[i].start()
 time.sleep(0.1)
 client_task = [
     common.node[5].run(client_cmd, return_output=True)
-    for _ in range(10)
+    for _ in range(8)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
 

@@ -14,7 +14,7 @@ def replica_cmd(index):
         '-c', common.proj_dir + 'run/nsl.txt',
         '-m', 'signedunrep',
         '-i', f'{index}',
-        '-w', '27',
+        '-w', '4',
     ]
 client_cmd = [
     'timeout', f'{duration + 3}',
@@ -23,10 +23,10 @@ client_cmd = [
     '-m', 'signedunrep',
     '-h', '11.0.0.101',
     '-u', f'{duration}',
-    '-t', '4',
+    '-t', '6',
 ]
 
-replica_task = common.node[1].run(replica_cmd(0), kill_remote=False, return_output=True)
+replica_task = common.node[1].run(replica_cmd(0), return_output=True)
 replica_task.start()
 client_task = [
     common.node[5].run(client_cmd, return_output=True)

@@ -1,10 +1,10 @@
 #include <cstring>
 #include <fstream>
 
-#include "lib/signature.h"
+// #include "lib/signature.h"
 #include "lib/udptransport.h"
 #include "replication/nopaxos/sequencer.h"
-#include "replication/tombft/sequencer.h"
+// #include "replication/tombft/sequencer.h"
 #include "sequencer/sequencer.h"
 #include "transaction/eris/sequencer.h"
 
@@ -66,7 +66,7 @@ int main(int argc, char *argv[]) {
 
   dsnet::Configuration config(config_stream);
   dsnet::UDPTransport transport;
-  dsnet::NopSecurity security;
+  // dsnet::NopSecurity security;
   switch (proto) {
     case PROTO_NOPAXOS:
       sequencer = new dsnet::nopaxos::NOPaxosSequencer(config, &transport, 0);
@@ -75,10 +75,10 @@ int main(int argc, char *argv[]) {
       sequencer =
           new dsnet::transaction::eris::ErisSequencer(config, &transport, 0);
       break;
-    case PROTO_TOMBFT:
-      sequencer =
-          new dsnet::tombft::TomBFTSequencer(config, &transport, security, 0);
-      break;
+    // case PROTO_TOMBFT:
+    //   sequencer =
+    //       new dsnet::tombft::TomBFTSequencer(config, &transport, security, 0);
+    //   break;
     default:
       NOT_REACHABLE();
   }

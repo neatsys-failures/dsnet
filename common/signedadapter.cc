@@ -78,12 +78,13 @@ void SignedAdapter::Parse(const void *buf, size_t size) {
     }
     secp256k1_context *ctx = PROTO_CTX_VERIFY;
     secp256k1_ecdsa_signature sig;
-    unsigned char *digest; // must be declared before goto
     if (!secp256k1_ecdsa_signature_parse_compact(ctx, &sig, buf_sig)) {
         is_verified = false;
         return;
     }
-    digest = SHA256(buf_inner, inner_size, new unsigned char[32]);
+    unsigned char *digest =
+        SHA256(buf_inner, inner_size, new unsigned char[32]);
+    this->digest.assign((char *)digest, 32);
     is_verified = secp256k1_ecdsa_verify(ctx, &sig, digest, pubkey) == 1;
     delete[] digest;
     if (is_verified) {
@@ -92,32 +93,32 @@ void SignedAdapter::Parse(const void *buf, size_t size) {
     }
 }
 
-bool SignedAdapter::DoVerify(const std::string &signature) const {
-    size_t buf_size = inner_message.SerializedSize();
-    unsigned char *buf = new unsigned char[inner_message.SerializedSize()];
-    inner_message.Serialize(buf);
-    unsigned char *digest = SHA256(buf, buf_size, new unsigned char[32]);
-    delete[] buf;
+// bool SignedAdapter::DoVerify(const std::string &signature) const {
+//     size_t buf_size = inner_message.SerializedSize();
+//     unsigned char *buf = new unsigned char[inner_message.SerializedSize()];
+//     inner_message.Serialize(buf);
+//     unsigned char *digest = SHA256(buf, buf_size, new unsigned char[32]);
+//     delete[] buf;
 
-    const secp256k1_pubkey *pubkey;
-    if (identifier == "Steve") {
-        pubkey = STEVE_PUBKEY;
-    } else {
-        NOT_IMPLEMENTED();
-    }
-    secp256k1_context *ctx = PROTO_CTX_VERIFY;
-    secp256k1_ecdsa_signature sig;
+//     const secp256k1_pubkey *pubkey;
+//     if (identifier == "Steve") {
+//         pubkey = STEVE_PUBKEY;
+//     } else {
+//         NOT_IMPLEMENTED();
+//     }
+//     secp256k1_context *ctx = PROTO_CTX_VERIFY;
+//     secp256k1_ecdsa_signature sig;
 
-    bool verified;
-    if (!secp256k1_ecdsa_signature_parse_compact(
-            ctx, &sig, (const unsigned char *)signature.data())) {
-        verified = false;
-    } else {
-        verified = secp256k1_ecdsa_verify(ctx, &sig, digest, pubkey) == 1;
-    }
-    delete[] digest;
-    return verified;
-}
+//     bool verified;
+//     if (!secp256k1_ecdsa_signature_parse_compact(
+//             ctx, &sig, (const unsigned char *)signature.data())) {
+//         verified = false;
+//     } else {
+//         verified = secp256k1_ecdsa_verify(ctx, &sig, digest, pubkey) == 1;
+//     }
+//     delete[] digest;
+//     return verified;
+// }
 
 void SignedAdapter::Serialize(void *buf) const {
     if (identifier == "Alex") {
@@ -158,6 +159,7 @@ void SignedAdapter::ParseNoVerify(const void *buf, size_t size) {
 
     unsigned char *digest =
         SHA256(buf_inner, inner_size, new unsigned char[32]);
+    this->digest.assign((char *)digest, 32);
     is_verified = true;
     delete[] digest;
     inner_message.Parse(buf_inner, inner_size);
