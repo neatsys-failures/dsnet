@@ -31,7 +31,7 @@ replica_task = common.node[1].run(replica_cmd(0), return_output=True)
 replica_task.start()
 client_task = [
     common.node[5].run(client_cmd, return_output=True)
-    for _ in range(12)
+    for _ in range(6)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
 

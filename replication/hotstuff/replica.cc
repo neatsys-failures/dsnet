@@ -240,15 +240,6 @@ void HotStuffReplica::EnterNextView(const proto::QC &justify) {
     locked_qc = move(generic_qc);
     generic_qc = unique_ptr<proto::QC>(new proto::QC(justify));
 
-    // if (IsPrimary()) {
-    //     // sending GenericMessage unconditionally to simply ensure liveness
-    //     of
-    //     // last few requests
-    //     // to reduce overhead, it is able to skip this sending and add close
-    //     // batch timeout
-    //     SendGeneric();
-    // }
-
     if (!commit_qc || commit_qc->op_number() == 0) {
         return;
     }

@@ -114,5 +114,12 @@ void PBFTReplica::HandleRequest(
     });
 }
 
+void PBFTReplica::HandlePreprepare(
+    const TransportAddress &remote, const proto::Preprepare &preprepare,
+    const Request &request //
+) {
+    //
+}
+
 } // namespace pbft
 } // namespace dsnet

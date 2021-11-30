@@ -44,6 +44,9 @@ private:
     void HandleRequest(
         const TransportAddress &remote, const Request &request,
         const std::string &signed_message, const std::string &digest);
+    void HandlePreprepare(
+        const TransportAddress &remote, const proto::Preprepare &preprepare,
+        const Request &request);
 };
 
 } // namespace pbft
