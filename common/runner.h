@@ -30,7 +30,7 @@ namespace dsnet {
 //   needed worker count as close to ideal minimum as possible
 class Runner {
 public:
-    Runner(int worker_thread_count);
+    Runner(int worker_thread_count, bool ordered_solo = false);
     ~Runner();
 
     using Solo = std::function<void()>;
@@ -41,10 +41,11 @@ public:
 
 private:
 #define WORKER_COUNT_MAX 128
-#define SOLO_RING_SIZE 800
-#define EPILOGUE_RING_SIZE 1000
+#define SOLO_RING_SIZE 256
+#define EPILOGUE_RING_SIZE 256
 
-    int worker_thread_count;
+    const int worker_thread_count;
+    const bool ordered_solo;
     std::thread worker_threads[WORKER_COUNT_MAX], solo_thread, epilogue_thread;
     volatile bool shutdown;
     void RunWorkerThread(int worker_id);
@@ -58,7 +59,7 @@ private:
     int task_order[WORKER_COUNT_MAX];
 
     Solo solo_ring[SOLO_RING_SIZE];
-    std::atomic<int> working_solo;
+    std::atomic<int> working_solo, pushing_solo;
     std::atomic<bool> pending_solo[SOLO_RING_SIZE];
 
     Epilogue epilogue_ring[EPILOGUE_RING_SIZE];

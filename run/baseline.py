@@ -23,14 +23,14 @@ client_cmd = [
     '-m', 'signedunrep',
     '-h', '11.0.0.101',
     '-u', f'{duration}',
-    '-t', '6',
+    '-t', '4',
 ]
 
 replica_task = common.node[1].run(replica_cmd(0), return_output=True)
 replica_task.start()
 client_task = [
     common.node[5].run(client_cmd, return_output=True)
-    for _ in range(20)
+    for _ in range(14)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
 

@@ -23,11 +23,16 @@ Latency_t driver_spin, solo_spin, solo_task;
 Latency_t worker_spin[WORKER_COUNT_MAX], worker_task[WORKER_COUNT_MAX],
     unstable_epilogue[WORKER_COUNT_MAX];
 
-Runner::Runner(int worker_thread_count)
-    : worker_thread_count(worker_thread_count), shutdown(false) {
+Runner::Runner(int worker_thread_count, bool ordered_solo)
+    : worker_thread_count(worker_thread_count), ordered_solo(ordered_solo),
+      shutdown(false) {
     if (worker_thread_count > WORKER_COUNT_MAX) {
         Panic("Too many worker");
     }
+
+#ifdef DSNET_NAIVE_RUNNER
+    Warning("Using naive runner");
+#endif
 
     _Latency_Init(&driver_spin, "driver_spin");
     _Latency_Init(&solo_spin, "solo_spin");
@@ -43,6 +48,7 @@ Runner::Runner(int worker_thread_count)
     }
     idle_hint = 0;
     working_solo = 0;
+    pushing_solo = 1;
     for (int i = 0; i < SOLO_RING_SIZE; i += 1) {
         pending_solo[i] = false;
     }
@@ -52,6 +58,10 @@ Runner::Runner(int worker_thread_count)
     }
     last_task = 0;
 
+#ifdef DSNET_NAIVE_RUNNER
+    SetThreadAffinity(pthread_self(), 0);
+    return;
+#endif
     for (int i = 0; i < worker_thread_count; i += 1) {
         worker_threads[i] = thread([this, i]() { RunWorkerThread(i); });
     }
@@ -77,13 +87,9 @@ Runner::Runner(int worker_thread_count)
 }
 
 Runner::~Runner() {
-#ifndef DSNET_RUNNER_ALLOW_DISDARD
-    // user should make sure no more RunPrologue calling
-    // or this can block forever
-    while (working_solo <= last_task || last_epilogue < working_solo - 1) {
-    }
+#ifdef DSNET_NAIVE_RUNNER
+    return;
 #endif
-
     shutdown = true;
     for (int i = 0; i < worker_thread_count; i += 1) {
         worker_threads[i].join();
@@ -129,6 +135,9 @@ auto Runner::PopEpilogue() -> Epilogue {
 }
 
 void Runner::RunWorkerThread(int worker_id) {
+#ifdef DSNET_NAIVE_RUNNER
+    return;
+#endif
     while (true) {
         Latency_Start(&worker_spin[worker_id]);
         while (worker_idle[worker_id]) {
@@ -146,12 +155,21 @@ void Runner::RunWorkerThread(int worker_id) {
         idle_hint = worker_id;
 
         Solo solo = prologue();
-        if (order - working_solo >= SOLO_RING_SIZE) {
-            Panic("Solo ring overflow");
-        }
+
         Debug("Insert solo: order = %d", order);
-        int slot = order % SOLO_RING_SIZE;
-        Assert(!pending_solo[slot]);
+        int slot;
+        if (ordered_solo) {
+            if (order - working_solo >= SOLO_RING_SIZE) {
+                Panic("Solo ring overflow");
+            }
+            slot = order % SOLO_RING_SIZE;
+            Assert(!pending_solo[slot]);
+        } else {
+            slot = pushing_solo.fetch_add(1) % SOLO_RING_SIZE;
+            if (pending_solo[slot]) {
+                Panic("Solo ring overflow");
+            }
+        }
         solo_ring[slot] = solo;
         pending_solo[slot] = true;
 
@@ -172,11 +190,13 @@ void Runner::RunWorkerThread(int worker_id) {
 }
 
 void Runner::RunSoloThread() {
+#ifdef DSNET_NAIVE_RUNNER
+    return;
+#endif
     while (true) {
-        Latency_Start(&solo_spin);
         working_solo += 1;
-        // Debug("solo pending: working = %d", (int) working_solo);
         int slot = working_solo % SOLO_RING_SIZE;
+        Latency_Start(&solo_spin);
         while (!pending_solo[slot]) {
             if (shutdown) {
                 return;
@@ -196,6 +216,9 @@ void Runner::RunSoloThread() {
 }
 
 void Runner::RunEpilogueThread(bool stable, int worker_id) {
+#ifdef DSNET_NAIVE_RUNNER
+    return;
+#endif
     if (!stable) {
         Latency_Start(&unstable_epilogue[worker_id]);
     }
@@ -204,6 +227,9 @@ void Runner::RunEpilogueThread(bool stable, int worker_id) {
             Latency_End(&unstable_epilogue[worker_id]);
             return;
         }
+        // if (!stable) {
+        //     idle_hint = worker_id;
+        // }
         Epilogue epilogue = PopEpilogue();
         if (epilogue) {
             epilogue();
@@ -212,6 +238,18 @@ void Runner::RunEpilogueThread(bool stable, int worker_id) {
 }
 
 void Runner::RunPrologue(Prologue prologue) {
+#ifdef DSNET_NAIVE_RUNNER
+    Solo solo = prologue();
+    if (solo) {
+        solo();
+        if (pending_epilogue[working_solo]) {
+            epilogue_ring[working_solo]();
+            epilogue_ring[working_solo] = nullptr;
+            pending_epilogue[working_solo] = false;
+        }
+    }
+    return;
+#endif
     last_task += 1;
     Latency_Start(&driver_spin);
     while (last_task >= working_solo + SOLO_RING_SIZE) {
@@ -223,8 +261,9 @@ void Runner::RunPrologue(Prologue prologue) {
     Latency_Start(&driver_spin);
     // int worker_id = last_task % worker_thread_count;
     static int worker_id;
-    worker_id = idle_hint != worker_id ? (int)idle_hint
-                                       : (worker_id + 1) % worker_thread_count;
+    worker_id = idle_hint != worker_id //
+                    ? (int)idle_hint
+                    : (worker_id + 1) % worker_thread_count;
     while (!worker_idle[worker_id]) {
         if (shutdown) {
             return;
