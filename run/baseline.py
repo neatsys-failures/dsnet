@@ -14,7 +14,7 @@ def replica_cmd(index):
         '-c', common.proj_dir + 'run/nsl.txt',
         '-m', 'signedunrep',
         '-i', f'{index}',
-        '-w', '3',
+        '-w', '4',
     ]
 client_cmd = [
     'timeout', f'{duration + 3}',
