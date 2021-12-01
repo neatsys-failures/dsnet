@@ -9,7 +9,7 @@ LD = c++
 CFLAGS := -g -Wall -pthread -iquote.obj/gen -Wno-uninitialized -Wno-array-bounds
 CFLAGS += -O3 -DNASSERT  # bench mode
 CFLAGS += -DDSNET_TOM_FPGA_DEMO
-# CFLAGS += -DDSNET_NAIVE_RUNNER
+CFLAGS += -DDSNET_NAIVE_RUNNER
 
 CXXFLAGS := -std=c++14
 LDFLAGS := -levent_pthreads -ldl

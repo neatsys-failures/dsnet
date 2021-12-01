@@ -15,11 +15,11 @@ using std::move;
 using std::string;
 using std::unique_ptr;
 
-HotStuffReplica::HotStuffReplica(
+HotStuffReplica::HotStuffReplica( //
     const Configuration &config, int index, string identifier, int n_thread,
     int batch_size, Transport *transport, AppReplica *app)
     : Replica(config, 0, index, false, transport, app), identifier(identifier),
-      runner(n_thread), batch_size(batch_size), log(false) //
+      runner(n_thread, true), batch_size(batch_size), log(false) //
 {
     setenv("DEBUG", "replica.cc", 1);
 
@@ -41,7 +41,7 @@ HotStuffReplica::HotStuffReplica(
         }));
     if (IsPrimary()) {
         send_generic_timeout =
-            unique_ptr<Timeout>(new Timeout(transport, 200, [this]() {
+            unique_ptr<Timeout>(new Timeout(transport, 300, [this]() {
                 runner.RunPrologue([this]() {
                     return [this]() {
                         if (!IsPrimary()) {
@@ -68,12 +68,15 @@ HotStuffReplica::HotStuffReplica(
 
 HotStuffReplica::~HotStuffReplica() {}
 
-void HotStuffReplica::ReceiveMessage(
-    const TransportAddress &remote, void *buf, size_t length //
+void HotStuffReplica::ReceiveMessage( //
+    const TransportAddress &remote, void *buf,
+    size_t length //
 ) {
     runner.RunPrologue(
-        [this, owned_buffer = string((const char *)buf, length),
-         escaping_remote = remote.clone()]() -> Runner::Solo {
+        [ //
+            this, owned_buffer = string((const char *)buf, length),
+            escaping_remote = remote.clone() //
+    ]() -> Runner::Solo {
             proto::Message message;
             PBMessage pb_layer(message);
             SignedAdapter signed_layer(pb_layer, "");
@@ -122,7 +125,8 @@ void HotStuffReplica::ReceiveMessage(
 }
 
 void HotStuffReplica::HandleRequest(
-    const TransportAddress &remote, const Request &request //
+    const TransportAddress &remote,
+    const Request &request //
 ) {
     auto iter = client_table.find(request.clientid());
     if (iter != client_table.end()) {
@@ -174,7 +178,7 @@ void HotStuffReplica::HandleVote(
     //     vote.replica_index());
     high_qc[vote.op_number()][vote.replica_index()] = signed_vote;
     // collect 2f from backups, then add one from self
-    if (high_qc[vote.op_number()].size() >= 2 * configuration.f) {
+    if ((int)high_qc[vote.op_number()].size() >= 2 * configuration.f) {
         RDebug("New QC collected: op_number = %lu", vote.op_number());
         proto::QC qc;
         qc.set_op_number(vote.op_number());
@@ -197,7 +201,8 @@ void HotStuffReplica::HandleVote(
 }
 
 void HotStuffReplica::HandleGeneric(
-    const TransportAddress &remote, const proto::GenericMessage &generic //
+    const TransportAddress &remote,
+    const proto::GenericMessage &generic //
 ) {
     if (IsPrimary()) {
         NOT_REACHABLE();
@@ -207,13 +212,14 @@ void HotStuffReplica::HandleGeneric(
 
     opnum_t op_offset = generic.block().op_number();
     RDebug(
-        "Generic block: op number = %lu (+%u)", op_offset,
-        generic.block().request_size());
+        "Generic block: op number = %lu (+%u), justify op number = %lu",
+        op_offset, generic.block().request_size(),
+        generic.block().justify().op_number());
     if (op_offset != log.LastOpnum() + 1) {
         NOT_IMPLEMENTED(); // state transfer
     }
     log.Append(new HotStuffEntry(op_offset));
-    for (opnum_t i = 0; i < generic.block().request_size(); i += 1) {
+    for (int i = 0; i < generic.block().request_size(); i += 1) {
         opnum_t op_number = op_offset + i + 1;
         log.Append(new HotStuffEntry(op_number, generic.block().request(i)));
     }
@@ -287,18 +293,17 @@ void HotStuffReplica::SendGeneric() {
         return;
     }
     *pending_generic->mutable_block()->mutable_justify() = *generic_qc;
-    RDebug(
-        "SendGeneric: block op number = %lu (+%u), justify op number = %lu",
-        pending_generic->block().op_number(),
-        pending_generic->block().request_size(),
-        pending_generic->block().justify().op_number());
 
     runner.RunEpilogue([this, escaping_generic = pending_generic.release()]() {
         auto generic = unique_ptr<proto::GenericMessage>(escaping_generic);
         proto::Message message;
         *message.mutable_generic() = *generic;
         PBMessage pb_layer(message);
-        SignedAdapter signed_layer(pb_layer, identifier);
+        SignedAdapter signed_layer(pb_layer, identifier, false);
+        RDebug(
+            "SendGeneric: block op number = %lu (+%u), justify op number = %lu",
+            generic->block().op_number(), generic->block().request_size(),
+            generic->block().justify().op_number());
         transport->SendMessageToAll(this, signed_layer);
     });
 
@@ -321,6 +326,7 @@ void HotStuffReplica::SendVote(opnum_t op_number) {
         vote.set_replica_index(replicaIdx);
         PBMessage pb_layer(message);
         SignedAdapter signed_layer(pb_layer, identifier);
+        RDebug("Vote: op number = %lu", op_number);
         transport->SendMessageToReplica(this, GetPrimary(), signed_layer);
     });
     resend_vote_timeout->Reset();

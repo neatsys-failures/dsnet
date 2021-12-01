@@ -56,6 +56,41 @@ void PBFTReplica::ReceiveMessage(
                     HandleRequest(
                         *remote, message.request(), owned_buffer, digest);
                 };
+            case proto::PBFTMessage::SubCase::kPreprepare: {
+                const string &prepare_buffer =
+                    message.preprepare().signed_prepare();
+                proto::Prepare prepare_message;
+                PBMessage pb_prepare(prepare_message);
+                SignedAdapter signed_prepare(pb_prepare, "");
+                signed_prepare.Parse(
+                    prepare_buffer.data(), prepare_buffer.size());
+                if (!signed_prepare.IsVerified()) {
+                    RWarning("Failed to verify Preprepare (Prepare)");
+                    return nullptr;
+                }
+
+                const string &request_buffer =
+                    message.preprepare().signed_message();
+                proto::PBFTMessage request_message;
+                PBMessage pb_request(request_message);
+                SignedAdapter signed_request(pb_request, "");
+                signed_request.Parse(
+                    request_buffer.data(), request_buffer.size());
+                if (!signed_request.IsVerified() ||
+                    !request_message.has_request()) {
+                    RWarning("Failed to verify Preprepare (Request)");
+                    return nullptr;
+                }
+                return [ //
+                           this, escaping_remote = remote.release(), message,
+                           prepare_message,
+                           request_message //
+                ]() {
+                    auto remote = unique_ptr<TransportAddress>(escaping_remote);
+                    HandlePreprepare(
+                        *remote, prepare_message, request_message.request());
+                };
+            }
             default:
                 RPanic("Unexpected message case: %d", message.sub_case());
             }
@@ -101,24 +136,61 @@ void PBFTReplica::HandleRequest(
     log.Append(new LogEntry(
         viewstamp_t(view_number, op_number), LOG_STATE_RECEIVED, request));
 
-    proto::PBFTMessage message;
-    auto &preprepare = *message.mutable_preprepare();
-    preprepare.set_view_number(view_number);
-    preprepare.set_op_number(op_number);
-    preprepare.set_digest(digest);
-    preprepare.set_signed_message(signed_message);
-    runner.RunEpilogue([this, message]() mutable {
+    proto::Prepare prepare;
+    prepare.set_view_number(view_number);
+    prepare.set_op_number(op_number);
+    prepare.set_digest(digest);
+    prepare.set_replica_id(replicaIdx);
+    runner.RunEpilogue([this, prepare, signed_message]() mutable {
+        PBMessage pb_prepare(prepare);
+        SignedAdapter signed_prepare(pb_prepare, identifier);
+        string signed_prepare_buffer;
+        signed_prepare_buffer.resize(signed_prepare.SerializedSize());
+        signed_prepare.Serialize(&signed_prepare_buffer.front());
+
+        proto::PBFTMessage message;
+        auto &preprepare = *message.mutable_preprepare();
+        *preprepare.mutable_signed_prepare() = signed_prepare_buffer;
+        *preprepare.mutable_signed_message() = signed_message;
         PBMessage pb_layer(message);
-        SignedAdapter signed_layer(pb_layer, identifier);
+        SignedAdapter signed_layer(pb_layer, identifier, false);
         transport->SendMessageToAll(this, signed_layer);
     });
 }
 
 void PBFTReplica::HandlePreprepare(
-    const TransportAddress &remote, const proto::Preprepare &preprepare,
+    const TransportAddress &remote, const proto::Prepare &prepare,
     const Request &request //
 ) {
-    //
+    if (prepare.view_number() < view_number) {
+        return;
+    }
+    if (prepare.view_number() > view_number) {
+        NOT_IMPLEMENTED(); // state transfer
+    }
+    if (IsPrimary()) {
+        NOT_REACHABLE();
+    }
+    // TODO resend for slow leader
+    if (prepare.op_number() <= log.LastOpnum()) {
+        return;
+    }
+    if (prepare.op_number() != log.LastOpnum() + 1) {
+        NOT_IMPLEMENTED(); // state transfer
+    }
+
+    log.Append(new LogEntry(
+        viewstamp_t(view_number, prepare.op_number()), LOG_STATE_RECEIVED,
+        request));
+
+    proto::PBFTMessage message;
+    *message.mutable_prepare() = prepare;
+    message.mutable_prepare()->set_replica_id(replicaIdx);
+    runner.RunEpilogue([this, message]() mutable {
+        PBMessage pb_layer(message);
+        SignedAdapter signed_layer(pb_layer, identifier);
+        transport->SendMessageToAll(this, signed_layer);
+    });
 }
 
 } // namespace pbft

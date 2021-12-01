@@ -19,15 +19,11 @@ message Reply {
     uint32 view_number = 4;
 }
 
-// in PBFT paper, only view, op and digest are protected by primary's signature
-// to keep a unified form that all PBFTMessage are transmitted with a 
-// signed-warpper, Preprepare's signature unnecessarily cover client's request
-// in this implementation. the overhead should be small
+// Preprepare message itself is not signed
+// signed_prepare is signed by primary, signed_message is signed by client
 message Preprepare {
-    uint32 view_number = 1;
-    uint64 op_number = 2;
-    bytes digest = 3;
-    bytes signed_message = 4;  // Signed[PBFTMessage::dsnet.Request]
+    bytes signed_prepare = 1;  // Signed[PBFTMessage::Prepare]
+    bytes signed_message = 2;  // Signed[PBFTMessage::dsnet.Request]
 }
 
 message Prepare {

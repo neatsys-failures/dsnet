@@ -36,6 +36,16 @@ private:
     };
     std::unordered_map<uint64_t, ClientEntry> client_table;
     Log log;
+    // op number -> digest -> replica id -> message
+    std::unordered_map<
+        opnum_t, //
+        std::unordered_map<
+            std::string, std::unordered_map<int, proto::Prepare>>>
+        prepare_quorum;
+    std::unordered_map<
+        opnum_t, //
+        std::unordered_map<std::string, std::unordered_map<int, proto::Commit>>>
+        commit_quorum;
 
     bool IsPrimary() const {
         return configuration.GetLeaderIndex(view_number) == replicaIdx;
@@ -45,8 +55,10 @@ private:
         const TransportAddress &remote, const Request &request,
         const std::string &signed_message, const std::string &digest);
     void HandlePreprepare(
-        const TransportAddress &remote, const proto::Preprepare &preprepare,
+        const TransportAddress &remote, const proto::Prepare &prepare,
         const Request &request);
+    void HandlePrepare(
+        const TransportAddress &remote, const proto::Prepare &prepare);
 };
 
 } // namespace pbft

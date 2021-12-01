@@ -58,8 +58,8 @@ Runner::Runner(int worker_thread_count, bool ordered_solo)
     }
     last_task = 0;
 
-#ifdef DSNET_NAIVE_RUNNER
     SetThreadAffinity(pthread_self(), 0);
+#ifdef DSNET_NAIVE_RUNNER
     return;
 #endif
     for (int i = 0; i < worker_thread_count; i += 1) {
@@ -156,6 +156,29 @@ void Runner::RunWorkerThread(int worker_id) {
 
         Solo solo = prologue();
 
+        if (true) {
+            while (working_solo != order - 1) {
+                if (shutdown) {
+                    return;
+                }
+            }
+            if (solo) {
+                solo();
+                Epilogue epilogue = nullptr;
+                int slot = working_solo % EPILOGUE_RING_SIZE;
+                if (pending_epilogue[slot]) {
+                    epilogue = epilogue_ring[slot];
+                    epilogue_ring[slot] = nullptr;
+                    pending_epilogue[slot] = false;
+                }
+                working_solo = order;
+                if (epilogue) {
+                    epilogue();
+                }
+            }
+            continue;
+        }
+
         Debug("Insert solo: order = %d", order);
         int slot;
         if (ordered_solo) {
@@ -190,6 +213,9 @@ void Runner::RunWorkerThread(int worker_id) {
 }
 
 void Runner::RunSoloThread() {
+    if (true) {
+        return;
+    }
 #ifdef DSNET_NAIVE_RUNNER
     return;
 #endif
@@ -216,6 +242,9 @@ void Runner::RunSoloThread() {
 }
 
 void Runner::RunEpilogueThread(bool stable, int worker_id) {
+    if (true) {
+        return;
+    }
 #ifdef DSNET_NAIVE_RUNNER
     return;
 #endif
