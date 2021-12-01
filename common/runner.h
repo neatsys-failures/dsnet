@@ -3,6 +3,8 @@
 #include <functional>
 #include <thread>
 
+#include <boost/lockfree/queue.hpp>
+
 namespace dsnet {
 
 // A runner designed for replication protocol.
@@ -30,7 +32,7 @@ namespace dsnet {
 //   needed worker count as close to ideal minimum as possible
 class Runner {
 public:
-    Runner(int worker_thread_count);
+    Runner(int n_worker, bool seq_solo = false);
     ~Runner();
 
     using Solo = std::function<void()>;
@@ -40,30 +42,28 @@ public:
     void RunEpilogue(Epilogue epilogue);
 
 private:
-#define WORKER_COUNT_MAX 128
-#define SOLO_RING_SIZE 800
-#define EPILOGUE_RING_SIZE 1000
+#define N_WORKER_MAX 128
+#define SOLO_RING_SIZE 256
 
-    int worker_thread_count;
-    std::thread worker_threads[WORKER_COUNT_MAX], solo_thread, epilogue_thread;
-    volatile bool shutdown;
+    const int n_worker;
+    const bool seq_solo;
+    std::thread worker_threads[N_WORKER_MAX], solo_thread, epilogue_thread;
+    std::atomic<bool> shutdown;
+
     void RunWorkerThread(int worker_id);
     void RunSoloThread();
     void RunEpilogueThread(bool stable, int worker_id);
-    Epilogue PopEpilogue();
-
-    std::atomic<bool> worker_idle[WORKER_COUNT_MAX];
-    std::atomic<int> idle_hint;
-    Prologue working_prologue[WORKER_COUNT_MAX];
-    int task_order[WORKER_COUNT_MAX];
 
     Solo solo_ring[SOLO_RING_SIZE];
-    std::atomic<int> working_solo;
     std::atomic<bool> pending_solo[SOLO_RING_SIZE];
+    boost::lockfree::queue<Solo *> solo_queue;
 
-    Epilogue epilogue_ring[EPILOGUE_RING_SIZE];
-    std::atomic<bool> pending_epilogue[EPILOGUE_RING_SIZE];
-    std::atomic<int> last_epilogue;
+    struct PrologueTask {
+        int id;
+        Prologue *prologue;
+    };
+    boost::lockfree::queue<PrologueTask> prologue_queue;
+    boost::lockfree::queue<Epilogue *> epilogue_queue;
 
     int last_task;
 };

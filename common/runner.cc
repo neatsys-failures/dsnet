@@ -18,41 +18,34 @@ static void SetThreadAffinity(pthread_t thread, int core_id) {
 }
 
 using std::thread;
+using std::unique_ptr;
 
 Latency_t driver_spin, solo_spin, solo_task;
-Latency_t worker_spin[WORKER_COUNT_MAX], worker_task[WORKER_COUNT_MAX],
-    unstable_epilogue[WORKER_COUNT_MAX];
+Latency_t worker_spin[N_WORKER_MAX], worker_task[N_WORKER_MAX],
+    unstable_epilogue[N_WORKER_MAX];
 
-Runner::Runner(int worker_thread_count)
-    : worker_thread_count(worker_thread_count), shutdown(false) {
-    if (worker_thread_count > WORKER_COUNT_MAX) {
+Runner::Runner(int n_worker, bool seq_solo)
+    : n_worker(n_worker), seq_solo(seq_solo), shutdown(false), solo_queue(256),
+      prologue_queue(256), epilogue_queue(256) {
+    if (n_worker > N_WORKER_MAX) {
         Panic("Too many worker");
     }
 
     _Latency_Init(&driver_spin, "driver_spin");
     _Latency_Init(&solo_spin, "solo_spin");
     _Latency_Init(&solo_task, "solo_task");
-    for (int i = 0; i < worker_thread_count; i += 1) {
+    for (int i = 0; i < n_worker; i += 1) {
         _Latency_Init(&worker_spin[i], "");
         _Latency_Init(&worker_task[i], "");
         _Latency_Init(&unstable_epilogue[i], "");
     }
 
-    for (int i = 0; i < worker_thread_count; i += 1) {
-        worker_idle[i] = true;
-    }
-    idle_hint = 0;
-    working_solo = 0;
     for (int i = 0; i < SOLO_RING_SIZE; i += 1) {
         pending_solo[i] = false;
     }
-    last_epilogue = 0;
-    for (int i = 0; i < EPILOGUE_RING_SIZE; i += 1) {
-        pending_epilogue[i] = false;
-    }
     last_task = 0;
 
-    for (int i = 0; i < worker_thread_count; i += 1) {
+    for (int i = 0; i < n_worker; i += 1) {
         worker_threads[i] = thread([this, i]() { RunWorkerThread(i); });
     }
     solo_thread = thread([this]() { RunSoloThread(); });
@@ -62,7 +55,7 @@ Runner::Runner(int worker_thread_count)
     SetThreadAffinity(solo_thread.native_handle(), 1);
     SetThreadAffinity(epilogue_thread.native_handle(), 2);
     int cpu = 2;
-    for (int i = 0; i < worker_thread_count; i += 1) {
+    for (int i = 0; i < n_worker; i += 1) {
         cpu += 1;
         while (cpu == 15 || cpu == 33 || cpu / 16 == 1) {
             cpu += 1;
@@ -77,15 +70,8 @@ Runner::Runner(int worker_thread_count)
 }
 
 Runner::~Runner() {
-#ifndef DSNET_RUNNER_ALLOW_DISDARD
-    // user should make sure no more RunPrologue calling
-    // or this can block forever
-    while (working_solo <= last_task || last_epilogue < working_solo - 1) {
-    }
-#endif
-
     shutdown = true;
-    for (int i = 0; i < worker_thread_count; i += 1) {
+    for (int i = 0; i < n_worker; i += 1) {
         worker_threads[i].join();
     }
     solo_thread.join();
@@ -95,7 +81,7 @@ Runner::~Runner() {
     _Latency_Init(&sum_worker_spin, "worker_spin");
     _Latency_Init(&sum_worker_task, "worker_task");
     _Latency_Init(&sum_unstable_epilogue, "unstable_epilogue");
-    for (int i = 0; i < worker_thread_count; i += 1) {
+    for (int i = 0; i < n_worker; i += 1) {
         Latency_Sum(&sum_worker_spin, &worker_spin[i]);
         Latency_Sum(&sum_worker_task, &worker_task[i]);
         Latency_Sum(&sum_unstable_epilogue, &unstable_epilogue[i]);
@@ -108,86 +94,66 @@ Runner::~Runner() {
     Latency_Dump(&sum_unstable_epilogue);
 }
 
-auto Runner::PopEpilogue() -> Epilogue {
-    int order = last_epilogue + 1;
-    Assert(order <= working_solo);
-    if (order == working_solo) {
-        return nullptr;
-    }
-    int t = order - 1;
-    if (!last_epilogue.compare_exchange_strong(t, order)) {
-        return nullptr;
-    }
-    int slot = order % EPILOGUE_RING_SIZE;
-    if (!pending_epilogue[slot]) {
-        return nullptr;
-    }
-    Epilogue epilogue = epilogue_ring[slot];
-    epilogue_ring[slot] = nullptr;
-    pending_epilogue[slot] = false;
-    return epilogue;
-}
-
 void Runner::RunWorkerThread(int worker_id) {
-    while (true) {
-        Latency_Start(&worker_spin[worker_id]);
-        while (worker_idle[worker_id]) {
-            if (shutdown) {
-                return;
+    while (!shutdown) {
+        PrologueTask task;
+        bool has_work = prologue_queue.pop(task);
+        if (!has_work) {
+            if (worker_id != 0) {
+                RunEpilogueThread(false, worker_id);
             }
+            continue;
         }
-        Latency_End(&worker_spin[worker_id]);
+
         Latency_Start(&worker_task[worker_id]);
-        Prologue prologue = working_prologue[worker_id];
-        int order = task_order[worker_id];
-        working_prologue[worker_id] = nullptr;
-        // is it ok?
-        worker_idle[worker_id] = true;
-        idle_hint = worker_id;
+        auto prologue = unique_ptr<Prologue>(task.prologue);
+        int order = task.id;
 
-        Solo solo = prologue();
-        if (order - working_solo >= SOLO_RING_SIZE) {
-            Panic("Solo ring overflow");
-        }
-        Debug("Insert solo: order = %d", order);
-        int slot = order % SOLO_RING_SIZE;
-        Assert(!pending_solo[slot]);
-        solo_ring[slot] = solo;
-        pending_solo[slot] = true;
+        Solo solo = (*prologue)();
 
-        Epilogue epilogue = PopEpilogue();
-        if (epilogue) {
-            epilogue();
-            Latency_EndType(&worker_task[worker_id], 'e');
+        if (seq_solo) {
+            Debug("Insert solo: order = %d", order);
+            int slot = order % SOLO_RING_SIZE;
+            if (pending_solo[slot]) {
+                Panic("Solo ring overflow");
+            }
+            solo_ring[slot] = solo;
+            pending_solo[slot] = true;
         } else {
-            Latency_End(&worker_task[worker_id]);
+            solo_queue.push(new Solo(solo));
         }
-
-        // worker_idle[worker_id] = true;
-        // idle_hint = worker_id;
-        if (worker_idle[worker_id]) {
-            RunEpilogueThread(false, worker_id);
-        }
+        Latency_End(&worker_task[worker_id]);
     }
 }
 
 void Runner::RunSoloThread() {
+    int slot = 0;
     while (true) {
+        Solo solo;
         Latency_Start(&solo_spin);
-        working_solo += 1;
-        // Debug("solo pending: working = %d", (int) working_solo);
-        int slot = working_solo % SOLO_RING_SIZE;
-        while (!pending_solo[slot]) {
-            if (shutdown) {
-                return;
+        if (seq_solo) {
+            slot = (slot + 1) % SOLO_RING_SIZE;
+            while (!pending_solo[slot]) {
+                if (shutdown) {
+                    return;
+                }
             }
+            solo = solo_ring[slot];
+            solo_ring[slot] = nullptr;
+            pending_solo[slot] = false;
+        } else {
+            Solo *solo_ptr;
+            while (!solo_queue.pop(solo_ptr)) {
+                if (shutdown) {
+                    return;
+                }
+            }
+            solo = *solo_ptr;
+            delete solo_ptr;
         }
         Latency_End(&solo_spin);
-        Latency_Start(&solo_task);
-        Solo solo = solo_ring[slot];
-        solo_ring[slot] = nullptr;
-        pending_solo[slot] = false;
 
+        Latency_Start(&solo_task);
         if (solo) {
             solo();
         }
@@ -200,52 +166,37 @@ void Runner::RunEpilogueThread(bool stable, int worker_id) {
         Latency_Start(&unstable_epilogue[worker_id]);
     }
     while (!shutdown) {
-        if (!stable && !worker_idle[worker_id]) {
-            Latency_End(&unstable_epilogue[worker_id]);
-            return;
+        Epilogue *epilogue;
+        bool has_work = epilogue_queue.pop(epilogue);
+        if (!has_work) {
+            if (!stable) {
+                Latency_End(&unstable_epilogue[worker_id]);
+                return;
+            }
+            continue;
         }
-        Epilogue epilogue = PopEpilogue();
-        if (epilogue) {
-            epilogue();
-        }
+        (*epilogue)();
+        delete epilogue;
     }
 }
 
 void Runner::RunPrologue(Prologue prologue) {
     last_task += 1;
+    PrologueTask task;
+    task.id = last_task;
+    task.prologue = new Prologue(prologue);
     Latency_Start(&driver_spin);
-    while (last_task >= working_solo + SOLO_RING_SIZE) {
-        if (shutdown) {
-            return;
-        }
+    bool r = prologue_queue.push(task);
+    Latency_End(&driver_spin);
+    if (!r) {
+        Panic("Fail to push prologue");
     }
-    Latency_EndType(&driver_spin, 's');
-    Latency_Start(&driver_spin);
-    // int worker_id = last_task % worker_thread_count;
-    static int worker_id;
-    worker_id = idle_hint != worker_id ? (int)idle_hint
-                                       : (worker_id + 1) % worker_thread_count;
-    while (!worker_idle[worker_id]) {
-        if (shutdown) {
-            return;
-        }
-        worker_id = (worker_id + 1) % worker_thread_count;
-    }
-    Latency_EndType(&driver_spin, 'w');
-    Debug("Dispatch: task = %d, worker = %d", last_task, worker_id);
-    working_prologue[worker_id] = prologue;
-    task_order[worker_id] = last_task;
-    worker_idle[worker_id] = false;
 }
 
 void Runner::RunEpilogue(Epilogue epilogue) {
-    Debug("working solo = %d", (int)working_solo);
-    int slot = working_solo % EPILOGUE_RING_SIZE;
-    if (pending_epilogue[slot]) {
-        Panic("Epilogue overflow");
+    if (!epilogue_queue.push(new Epilogue(epilogue))) {
+        Panic("Fail to push epilogue");
     }
-    epilogue_ring[slot] = epilogue;
-    pending_epilogue[slot] = true;
 }
 
 } // namespace dsnet
