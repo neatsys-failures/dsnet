@@ -7,7 +7,7 @@ import time
 
 common.setup('HotStuff performance')
 
-duration = 3
+duration = 10
 def replica_cmd(index):
     return [
         'timeout', f'{duration + 3}',
@@ -15,17 +15,17 @@ def replica_cmd(index):
         '-c', common.proj_dir + 'run/nsl.txt',
         '-m', 'hotstuff',
         '-i', f'{index}',
-        '-w', '12',
-        '-b', '20',
+        '-w', '6',
+        # '-b', '20',
     ]
 client_cmd = [
-    'timeout', f'{duration + 3}',
+    # 'timeout', f'{duration + 3}',
     common.proj_dir  + 'bench/client',
     '-c', common.proj_dir + 'run/nsl.txt',
     '-m', 'hotstuff',
     '-h', '11.0.0.101',
     '-u', f'{duration}',
-    '-t', '20',
+    '-t', '6',
 ]
 
 replica_task = [None] * 4

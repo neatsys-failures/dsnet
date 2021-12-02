@@ -21,7 +21,7 @@ HotStuffReplica::HotStuffReplica( //
     : Replica(config, 0, index, false, transport, app), identifier(identifier),
       runner(n_thread), batch_size(batch_size), log(false) //
 {
-    setenv("DEBUG", "replica.cc", 1);
+    // setenv("DEBUG", "replica.cc", 1);
 
     resend_vote_timeout =
         unique_ptr<Timeout>(new Timeout(transport, 1000, [this]() {
@@ -250,6 +250,7 @@ void HotStuffReplica::EnterNextView(const proto::QC &justify) {
         return;
     }
 
+    std::vector<Runner::Epilogue> epilogue_list;
     for ( //
         opnum_t op_number = commit_qc->op_number();
         op_number < locked_qc->op_number(); op_number += 1 //
@@ -271,14 +272,23 @@ void HotStuffReplica::EnterNextView(const proto::QC &justify) {
         const auto &iter = client_table.find(entry.request.clientid());
         if (iter != client_table.end()) { // almost always
             const TransportAddress &remote = *iter->second.remote;
-            // Do this in epilogue?
-            transport->SendMessage(this, remote, PBMessage(message));
+            epilogue_list.push_back(
+                [this, escaping_remote = remote.clone(), message]() mutable {
+                    auto remote = unique_ptr<TransportAddress>(escaping_remote);
+                    transport->SendMessage(this, *remote, PBMessage(message));
+                });
 
             iter->second.reply_message = message;
             iter->second.has_reply = true;
         } else {
             RWarning("Client entry not found, skip send reply");
         }
+
+        runner.RunEpilogue([this, epilogue_list] {
+            for (Runner::Epilogue epilogue : epilogue_list) {
+                epilogue();
+            }
+        });
     }
 }
 
@@ -294,25 +304,25 @@ void HotStuffReplica::SendGeneric() {
     }
     *pending_generic->mutable_block()->mutable_justify() = *generic_qc;
 
-    runner.RunEpilogue([this, escaping_generic = pending_generic.release()]() {
-        auto generic = unique_ptr<proto::GenericMessage>(escaping_generic);
-        proto::Message message;
-        *message.mutable_generic() = *generic;
-        PBMessage pb_layer(message);
-        SignedAdapter signed_layer(pb_layer, identifier, false);
-        RDebug(
-            "SendGeneric: block op number = %lu (+%u), justify op number = %lu",
-            generic->block().op_number(), generic->block().request_size(),
-            generic->block().justify().op_number());
-        transport->SendMessageToAll(this, signed_layer);
-    });
+    // runner.RunEpilogue([this, escaping_generic = pending_generic.release()]()
+    // { auto generic = unique_ptr<proto::GenericMessage>(escaping_generic);
+    auto generic = move(pending_generic);
+    proto::Message message;
+    *message.mutable_generic() = *generic;
+    PBMessage pb_layer(message);
+    SignedAdapter signed_layer(pb_layer, identifier);
+    RDebug(
+        "SendGeneric: block op number = %lu (+%u), justify op number = %lu",
+        generic->block().op_number(), generic->block().request_size(),
+        generic->block().justify().op_number());
+    transport->SendMessageToAll(this, signed_layer);
+    // });
 
     ResetPendingGeneric();
 }
 
 void HotStuffReplica::ResetPendingGeneric() {
-    pending_generic =
-        unique_ptr<proto::GenericMessage>(new proto::GenericMessage);
+    pending_generic.reset(new proto::GenericMessage);
     RDebug("Reset pending generic: op number = %lu", log.LastOpnum() + 1);
     pending_generic->mutable_block()->set_op_number(log.LastOpnum() + 1);
     log.Append(new HotStuffEntry(log.LastOpnum() + 1));

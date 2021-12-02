@@ -33,7 +33,7 @@ public:
 private:
     // consts
     std::string identifier;
-    CTPLRunner runner;
+    CTPLOrderedRunner runner;
     int batch_size;
 
     // single states

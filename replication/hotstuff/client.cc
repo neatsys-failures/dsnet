@@ -70,10 +70,13 @@ void HotStuffClient::ReceiveMessage(
     if (count < config.f + 1) {
         return;
     }
+    // Notice(
+    //     "Request done: client id = %lu, number = %lu", clientid,
+    //     pending_request->request_number);
 
     auto then = pending_request->then;
     auto op = pending_request->op;
-    pending_request = nullptr;
+    pending_request.reset();
     then(op, reply.result());
 }
 
