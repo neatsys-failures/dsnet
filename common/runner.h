@@ -1,5 +1,6 @@
 #pragma once
 #include "lib/ctpl.h"
+#include <condition_variable>
 #include <functional>
 #include <mutex>
 #include <thread>
@@ -53,6 +54,26 @@ class CTPLRunner : public Runner {
 
 public:
     CTPLRunner(int n_worker) : pool(n_worker) {
+        for (int i = 0; i < n_worker; i += 1) {
+            SetAffinity(pool.get_thread(i));
+        }
+    }
+
+    void RunPrologue(Prologue prologue) override;
+    void RunEpilogue(Epilogue epilogue) override { this->epilogue = epilogue; }
+};
+
+class CTPLOrderedRunner : public Runner {
+    ctpl::thread_pool pool;
+    std::mutex replica_mutex;
+    std::condition_variable cv;
+    int prologue_id, last_task;
+    Epilogue epilogue;
+
+public:
+    CTPLOrderedRunner(int n_worker) : pool(n_worker) {
+        prologue_id = last_task = 0;
+
         for (int i = 0; i < n_worker; i += 1) {
             SetAffinity(pool.get_thread(i));
         }

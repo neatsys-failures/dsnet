@@ -5,7 +5,9 @@
 
 namespace dsnet {
 
+using std::mutex;
 using std::thread;
+using std::unique_lock;
 
 #define N_WORKER_MAX 128
 Latency_t driver_spin, solo_spin, solo_task;
@@ -72,7 +74,7 @@ void CTPLRunner::RunPrologue(Prologue prologue) {
         }
 
         Latency_Start(&worker_spin[id]);
-        std::unique_lock<std::mutex> replica_lock(replica_mutex);
+        unique_lock<mutex> replica_lock(replica_mutex);
         Latency_EndType(&worker_spin[id], 's');
 
         Latency_Start(&worker_task[id]);
@@ -86,10 +88,39 @@ void CTPLRunner::RunPrologue(Prologue prologue) {
             Latency_Start(&worker_task[id]);
             epilogue();
             Latency_EndType(&worker_task[id], 'e');
-        } else {
         }
     });
     Latency_End(&driver_spin);
+}
+
+void CTPLOrderedRunner::RunPrologue(Prologue prologue) {
+    prologue_id += 1;
+    pool.push([this, prologue, prologue_id = prologue_id](int id) {
+        Solo solo = prologue();
+
+        Debug("Wait solo: worker id = %d, task id = %d", id, prologue_id);
+        unique_lock<mutex> replica_lock(replica_mutex);
+        cv.wait(replica_lock, [this, prologue_id] {
+            return last_task == prologue_id - 1;
+        });
+        Debug("Start solo: worker id = %d, task id = %d", id, prologue_id);
+
+        this->epilogue = nullptr;
+        if (solo) {
+            Latency_Start(&worker_task[id]);
+            solo();
+            Latency_EndType(&worker_task[id], 's');
+        }
+        Debug("Done solo: worker id = %d, task id = %d", id, prologue_id);
+        Epilogue epilogue = this->epilogue;
+        last_task = prologue_id;
+        replica_lock.unlock();
+        cv.notify_all();
+
+        if (epilogue) {
+            epilogue();
+        }
+    });
 }
 
 } // namespace dsnet

@@ -3,6 +3,8 @@
 #include "common/signedadapter.h"
 #include "sequencer/sequencer.h"
 
+#include <cstdlib>
+
 #define RDebug(fmt, ...) Debug("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
 #define RNotice(fmt, ...) Notice("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
 #define RWarning(fmt, ...) Warning("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
@@ -20,10 +22,9 @@ PBFTReplica::PBFTReplica(
     int n_worker, int batch_size, Transport *transport, AppReplica *app)
     : Replica(config, 0, replica_id, true, transport, app),
       identifier(identifier), runner(n_worker), batch_size(batch_size),
-      view_number(0), op_number(0), prepare_number(0), commit_number(0),
-      log(true) //
+      view_number(0), op_number(0), commit_number(0), log(true) //
 {
-    //
+    // setenv("DEBUG", "all", 1);
 }
 
 PBFTReplica::~PBFTReplica() {
@@ -156,7 +157,7 @@ void PBFTReplica::HandleRequest(
     prepare.set_op_number(op_number);
     prepare.set_digest(log.LastHash());
     prepare.set_replica_id(replicaIdx);
-    runner.RunEpilogue([this, prepare, signed_message]() mutable {
+    // runner.RunEpilogue([this, prepare, signed_message]() mutable {
         PBMessage pb_prepare(prepare);
         SignedAdapter signed_prepare(pb_prepare, identifier);
         string signed_prepare_buffer;
@@ -169,8 +170,9 @@ void PBFTReplica::HandleRequest(
         *preprepare.mutable_signed_message() = signed_message;
         PBMessage pb_layer(message);
         SignedAdapter signed_layer(pb_layer, identifier, false);
+        RDebug("Send Preprepare: op number = %lu", prepare.op_number());
         transport->SendMessageToAll(this, signed_layer);
-    });
+    // });
 }
 
 void PBFTReplica::HandlePreprepare(
@@ -178,6 +180,7 @@ void PBFTReplica::HandlePreprepare(
     const std::string &signed_prepare,
     const Request &request //
 ) {
+    RDebug("Preprepare: op number = %lu", prepare.op_number());
     if (prepare.view_number() < view_number) {
         return;
     }
@@ -187,7 +190,7 @@ void PBFTReplica::HandlePreprepare(
     if (IsPrimary()) {
         NOT_REACHABLE();
     }
-    if (prepare.op_number() <= prepare_number) {
+    if (prepare.op_number() <= log.LastOpnum()) {
         return;
     }
     if (prepare.op_number() != log.LastOpnum() + 1) {
@@ -222,14 +225,11 @@ void PBFTReplica::HandlePrepare(
     if (prepare.view_number() > view_number) {
         NOT_IMPLEMENTED(); // state transfer
     }
-    if (prepare.op_number() <= prepare_number) {
+    if (prepare.op_number() > log.LastOpnum()) {
+        NOT_IMPLEMENTED(); // state transfer
+    }
+    if (log.Find(prepare.op_number())->state != LOG_STATE_RECEIVED) {
         return;
-    }
-    if (prepare.op_number() > prepare_number + 1) {
-        NOT_IMPLEMENTED(); // state transfer
-    }
-    if (log.Find(prepare.op_number()) == nullptr) {
-        NOT_IMPLEMENTED(); // state transfer
     }
 
     prepare_quorum //
@@ -253,12 +253,11 @@ void PBFTReplica::HandlePrepare(
         return;
     }
 
-    prepare_number += 1;
-    log.Find(prepare_number)->state = LOG_STATE_PREPARED;
+    log.Find(prepare.op_number())->state = LOG_STATE_PREPARED;
     proto::PBFTMessage message;
     auto &commit = *message.mutable_commit();
     commit.set_view_number(view_number);
-    commit.set_op_number(prepare_number);
+    commit.set_op_number(prepare.op_number());
     commit.set_digest(prepare.digest());
     commit.set_replica_id(replicaIdx);
     runner.RunEpilogue([this, message]() mutable {
@@ -283,11 +282,11 @@ void PBFTReplica::HandleCommit(
     if (commit.view_number() > view_number) {
         NOT_IMPLEMENTED(); // state transfer
     }
-    if (commit.op_number() <= commit_number) {
-        return;
-    }
-    if (commit.op_number() != commit_number + 1) {
+    if (commit.op_number() > log.LastOpnum()) {
         NOT_IMPLEMENTED(); // state transfer
+    }
+    if (log.Find(commit.op_number())->state == LOG_STATE_COMMITTED) {
+        return;
     }
 
     commit_quorum //
@@ -299,28 +298,42 @@ void PBFTReplica::HandleCommit(
         2 * configuration.f) {
         return;
     }
+    // TODO check prepare quorum as well
 
-    commit_number += 1;
-    auto entry = log.Find(commit_number);
-    entry->state = LOG_STATE_COMMITTED;
-    ExecuteContext ctx;
-    Execute(commit_number, entry->request, ctx);
+    log.Find(commit.op_number())->state = LOG_STATE_COMMITTED;
 
-    proto::Reply reply;
-    reply.set_view_number(view_number);
-    reply.set_request_number(entry->request.clientreqid());
-    reply.set_result(ctx.result);
-    reply.set_replica_id(replicaIdx);
-    auto &client_entry = client_table[entry->request.clientid()];
-    client_entry.request_number = entry->request.clientreqid();
-    client_entry.has_reply = true;
-    client_entry.reply = reply;
-    runner.RunEpilogue(
-        [this, reply, addr = entry->request.clientaddr()]() mutable {
-            auto remote = unique_ptr<TransportAddress>(
-                transport->LookupAddress(ReplicaAddress(addr)));
-            transport->SendMessage(this, *remote, PBMessage(reply));
-        });
+    std::vector<Runner::Epilogue> epilogue_list;
+    while (auto entry = log.Find(commit_number + 1)) {
+        if (entry->state != LOG_STATE_COMMITTED) {
+            break;
+        }
+        commit_number += 1;
+
+        ExecuteContext ctx;
+        Execute(commit_number, entry->request, ctx);
+
+        proto::Reply reply;
+        reply.set_view_number(view_number);
+        reply.set_request_number(entry->request.clientreqid());
+        reply.set_result(ctx.result);
+        reply.set_replica_id(replicaIdx);
+        auto &client_entry = client_table[entry->request.clientid()];
+        client_entry.request_number = entry->request.clientreqid();
+        client_entry.has_reply = true;
+        client_entry.reply = reply;
+
+        epilogue_list.push_back(
+            [this, reply, addr = entry->request.clientaddr()]() mutable {
+                auto remote = unique_ptr<TransportAddress>(
+                    transport->LookupAddress(ReplicaAddress(addr)));
+                transport->SendMessage(this, *remote, PBMessage(reply));
+            });
+    }
+    runner.RunEpilogue([this, epilogue_list]() {
+        for (Runner::Epilogue epilogue : epilogue_list) {
+            epilogue();
+        }
+    });
 }
 
 } // namespace pbft

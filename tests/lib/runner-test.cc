@@ -6,7 +6,7 @@ TEST(Runner, Null) {
     //
 }
 
-using dsnet::CTPLRunner;
+using namespace dsnet;
 
 TEST(Runner, Instance) {
     CTPLRunner runner(8);
@@ -27,7 +27,7 @@ using std::chrono::milliseconds;
 using std::this_thread::sleep_for;
 
 TEST(Runner, SoloOrder) {
-    CTPLRunner runner(8);
+    CTPLOrderedRunner runner(8);
     int last_solo = 0;
     for (int i = 0; i < 10; i += 1) {
         runner.RunPrologue([i, &last_solo]() {

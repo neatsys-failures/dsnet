@@ -20,12 +20,12 @@ public:
 private:
     // consts
     string identifier;
-    CTPLRunner runner;
+    CTPLOrderedRunner runner;
     int batch_size;
 
     // single states
     view_t view_number;
-    opnum_t op_number, prepare_number, commit_number;
+    opnum_t op_number, commit_number;
 
     // aggregated states
     struct ClientEntry {
