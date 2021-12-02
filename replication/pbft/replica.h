@@ -25,11 +25,10 @@ private:
 
     // single states
     view_t view_number;
-    opnum_t op_number, commit_number;
+    opnum_t op_number, prepare_number, commit_number;
 
     // aggregated states
     struct ClientEntry {
-        std::unique_ptr<TransportAddress> remote;
         opnum_t request_number;
         proto::Reply reply;
         bool has_reply;
@@ -39,13 +38,8 @@ private:
     // op number -> digest -> replica id -> message
     std::unordered_map<
         opnum_t, //
-        std::unordered_map<
-            std::string, std::unordered_map<int, proto::Prepare>>>
-        prepare_quorum;
-    std::unordered_map<
-        opnum_t, //
-        std::unordered_map<std::string, std::unordered_map<int, proto::Commit>>>
-        commit_quorum;
+        std::unordered_map<std::string, std::unordered_map<int, std::string>>>
+        prepare_quorum, commit_quorum;
 
     bool IsPrimary() const {
         return configuration.GetLeaderIndex(view_number) == replicaIdx;
@@ -53,12 +47,16 @@ private:
 
     void HandleRequest(
         const TransportAddress &remote, const Request &request,
-        const std::string &signed_message, const std::string &digest);
+        const std::string &signed_message);
     void HandlePreprepare(
         const TransportAddress &remote, const proto::Prepare &prepare,
-        const Request &request);
+        const std::string &signed_prepare, const Request &request);
     void HandlePrepare(
-        const TransportAddress &remote, const proto::Prepare &prepare);
+        const TransportAddress &remote, const proto::Prepare &prepare,
+        const std::string &signed_prepare);
+    void HandleCommit(
+        const TransportAddress &remote, const proto::Commit &commit,
+        const std::string &signed_commit);
 };
 
 } // namespace pbft

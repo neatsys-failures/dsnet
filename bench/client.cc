@@ -28,17 +28,17 @@
  *
  **********************************************************************/
 
+#include "common/client.h"
+#include "bench/benchmark.h"
 #include "lib/assert.h"
+#include "lib/configuration.h"
 #include "lib/dpdktransport.h"
 #include "lib/message.h"
 #include "lib/udptransport.h"
-
-#include "bench/benchmark.h"
-#include "common/client.h"
-#include "lib/configuration.h"
 #include "replication/fastpaxos/client.h"
 #include "replication/hotstuff/client.h"
 #include "replication/nopaxos/client.h"
+#include "replication/pbft/client.h"
 #include "replication/signedunrep/client.h"
 #include "replication/tombft/client.h"
 #include "replication/unreplicated/client.h"
@@ -84,7 +84,8 @@ int main(int argc, char **argv) {
         PROTO_SPEC,
         PROTO_NOPAXOS,
         PROTO_TOMBFT,
-        PROTO_HOTSTUFF
+        PROTO_HOTSTUFF,
+        PROTO_PBFT
     } proto = PROTO_UNKNOWN;
 
     enum { TRANSPORT_UDP, TRANSPORT_DPDK } transport_type = TRANSPORT_UDP;
@@ -146,6 +147,8 @@ int main(int argc, char **argv) {
                 proto = PROTO_TOMBFT;
             } else if (strcasecmp(optarg, "hotstuff") == 0) {
                 proto = PROTO_HOTSTUFF;
+            } else if (strcasecmp(optarg, "pbft") == 0) {
+                proto = PROTO_PBFT;
             } else {
                 fprintf(stderr, "unknown mode '%s'\n", optarg);
                 Usage(argv[0]);
@@ -275,6 +278,11 @@ int main(int argc, char **argv) {
         case PROTO_HOTSTUFF:
             client = new dsnet::hotstuff::HotStuffClient(
                 config, addr, "Alex", transport);
+            break;
+
+        case PROTO_PBFT:
+            client =
+                new dsnet::pbft::PBFTClient(config, addr, "Alex", transport);
             break;
 
         default:

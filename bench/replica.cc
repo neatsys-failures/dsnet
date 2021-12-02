@@ -34,6 +34,7 @@
 #include "replication/fastpaxos/replica.h"
 #include "replication/hotstuff/replica.h"
 #include "replication/nopaxos/replica.h"
+#include "replication/pbft/replica.h"
 #include "replication/signedunrep/replica.h"
 #include "replication/tombft/replica.h"
 #include "replication/unreplicated/replica.h"
@@ -41,12 +42,12 @@
 
 #include <fstream>
 #include <iostream>
-#include <stdlib.h>
-#include <unistd.h>
+#include <thread>
 #include <vector>
 
 #include <sched.h>
-#include <thread>
+#include <stdlib.h>
+#include <unistd.h>
 
 static void Usage(const char *progName) {
     fprintf(
@@ -80,7 +81,8 @@ int main(int argc, char **argv) {
         PROTO_SPEC,
         PROTO_NOPAXOS,
         PROTO_TOMBFT,
-        PROTO_HOTSTUFF
+        PROTO_HOTSTUFF,
+        PROTO_PBFT
     } proto = PROTO_UNKNOWN;
 
     // Parse arguments
@@ -139,6 +141,8 @@ int main(int argc, char **argv) {
                 proto = PROTO_TOMBFT;
             } else if (strcasecmp(optarg, "hotstuff") == 0) {
                 proto = PROTO_HOTSTUFF;
+            } else if (strcasecmp(optarg, "pbft") == 0) {
+                proto = PROTO_PBFT;
             } else {
                 fprintf(stderr, "unknown mode '%s'\n", optarg);
                 Usage(argv[0]);
@@ -248,6 +252,12 @@ int main(int argc, char **argv) {
 
     case PROTO_HOTSTUFF:
         replica = new dsnet::hotstuff::HotStuffReplica(
+            config, index, "Steve", n_worker_thread, batchSize, &transport,
+            nullApp);
+        break;
+
+    case PROTO_PBFT:
+        replica = new dsnet::pbft::PBFTReplica(
             config, index, "Steve", n_worker_thread, batchSize, &transport,
             nullApp);
         break;
