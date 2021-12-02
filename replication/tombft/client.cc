@@ -1,10 +1,10 @@
 #include "replication/tombft/client.h"
 
-#include "lib/message.h"
-#include "lib/assert.h"
-#include "lib/transport.h"
 #include "common/pbmessage.h"
 #include "common/signedadapter.h"
+#include "lib/assert.h"
+#include "lib/message.h"
+#include "lib/transport.h"
 #include "replication/tombft/adapter.h"
 
 namespace dsnet {
@@ -14,21 +14,17 @@ using namespace proto;
 using std::string;
 
 TOMBFTClient::TOMBFTClient(
-    const Configuration &config, 
-    const ReplicaAddress &addr, const string identifier,
-    Transport *transport, uint64_t clientid)
-    : Client(config, addr, transport, clientid), identifier(identifier)
-{
+    const Configuration &config, const ReplicaAddress &addr,
+    const string identifier, Transport *transport, uint64_t clientid)
+    : Client(config, addr, transport, clientid), identifier(identifier) {
     pendingRequest = NULL;
     pendingUnloggedRequest = NULL;
     lastReqId = 0;
-    requestTimeout = new Timeout(transport, 1000, [this]() {
-	    ResendRequest();
-	});
+    requestTimeout =
+        new Timeout(transport, 1000, [this]() { ResendRequest(); });
 }
 
-TOMBFTClient::~TOMBFTClient()
-{
+TOMBFTClient::~TOMBFTClient() {
     if (pendingRequest) {
         delete pendingRequest;
     }
@@ -37,9 +33,7 @@ TOMBFTClient::~TOMBFTClient()
     }
 }
 
-void
-TOMBFTClient::Invoke(const string &request, continuation_t continuation)
-{
+void TOMBFTClient::Invoke(const string &request, continuation_t continuation) {
     // XXX Can only handle one pending request for now
     if (pendingRequest != NULL) {
         Panic("Client only supports one pending request");
@@ -51,9 +45,7 @@ TOMBFTClient::Invoke(const string &request, continuation_t continuation)
     SendRequest();
 }
 
-void
-TOMBFTClient::SendRequest()
-{
+void TOMBFTClient::SendRequest() {
     proto::Message m;
     Request *reqMsg = m.mutable_request();
     reqMsg->set_op(pendingRequest->request);
@@ -68,26 +60,19 @@ TOMBFTClient::SendRequest()
     requestTimeout->Reset();
 }
 
-void
-TOMBFTClient::ResendRequest()
-{
+void TOMBFTClient::ResendRequest() {
     Warning("Timeout, resending request for req id %lu", lastReqId);
     SendRequest();
 }
 
-void
-TOMBFTClient::InvokeUnlogged(
-    int replicaIdx, const string &request,
-    continuation_t continuation, timeout_continuation_t timeoutContinuation,
-    uint32_t timeout)
-{
+void TOMBFTClient::InvokeUnlogged(
+    int replicaIdx, const string &request, continuation_t continuation,
+    timeout_continuation_t timeoutContinuation, uint32_t timeout) {
     NOT_IMPLEMENTED();
 }
 
-void
-TOMBFTClient::ReceiveMessage(
-    const TransportAddress &remote, void *buf, size_t size)
-{
+void TOMBFTClient::ReceiveMessage(
+    const TransportAddress &remote, void *buf, size_t size) {
     static proto::Message client_msg;
     static PBMessage m(client_msg);
     static SignedAdapter signed_adapter(m, "");
@@ -96,28 +81,26 @@ TOMBFTClient::ReceiveMessage(
     ASSERT(signed_adapter.IsVerified());
 
     switch (client_msg.get_case()) {
-        case proto::Message::GetCase::kReply:
-            HandleReply(remote, client_msg.reply());
-            break;
-        // case ToClientMessage::MsgCase::kUnloggedReply:
-        //     HandleUnloggedReply(remote, client_msg.unlogged_reply());
-        //     break;
-        default:
-            Panic("Received unexpected message type: %u", client_msg.get_case());
+    case proto::Message::GetCase::kReply:
+        HandleReply(remote, client_msg.reply());
+        break;
+    // case ToClientMessage::MsgCase::kUnloggedReply:
+    //     HandleUnloggedReply(remote, client_msg.unlogged_reply());
+    //     break;
+    default:
+        Panic("Received unexpected message type: %u", client_msg.get_case());
     }
 }
 
-void
-TOMBFTClient::HandleReply(
-    const TransportAddress &remote, const proto::ReplyMessage &msg)
-{
+void TOMBFTClient::HandleReply(
+    const TransportAddress &remote, const proto::ReplyMessage &msg) {
     if (pendingRequest == NULL) {
         // Warning("Received reply when no request was pending");
-    	return;
+        return;
     }
 
     if (msg.client_request() != pendingRequest->clientreqid) {
-	    return;
+        return;
     }
 
     pendingRequest->received[msg.replica_index()] = true;
@@ -128,8 +111,8 @@ TOMBFTClient::HandleReply(
         }
     }
     Debug("Packet count = %d", count);
-    // if (count < 2 * config.f + 1) {
-    if (count < config.n) {
+    if (count < 2 * config.f + 1) {
+    // if (count < config.n) {
         return;
     }
 
@@ -151,5 +134,5 @@ TOMBFTClient::HandleReply(
 //     NOT_REACHABLE();
 // }
 
-} 
-} 
+} // namespace tombft
+} // namespace dsnet

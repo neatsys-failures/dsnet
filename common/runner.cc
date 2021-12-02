@@ -55,6 +55,7 @@ Runner::~Runner() {
 void Runner::SetAffinity(thread &t) {
     core_id += 1;
     while (core_id == 15 || core_id / 16 == 1) {
+        // while (core_id == 15) {
         core_id += 1;
     }
     if (core_id == 64) {
@@ -96,13 +97,17 @@ void CTPLRunner::RunPrologue(Prologue prologue) {
 void CTPLOrderedRunner::RunPrologue(Prologue prologue) {
     prologue_id += 1;
     pool.push([this, prologue, prologue_id = prologue_id](int id) {
+        Latency_Start(&worker_task[id]);
         Solo solo = prologue();
+        Latency_EndType(&worker_task[id], 'p');
 
         Debug("Wait solo: worker id = %d, task id = %d", id, prologue_id);
+        Latency_Start(&worker_spin[id]);
         unique_lock<mutex> replica_lock(replica_mutex);
         cv.wait(replica_lock, [this, prologue_id] {
             return last_task == prologue_id - 1;
         });
+        Latency_EndType(&worker_spin[id], 's');
         Debug("Start solo: worker id = %d, task id = %d", id, prologue_id);
 
         this->epilogue = nullptr;
@@ -118,7 +123,9 @@ void CTPLOrderedRunner::RunPrologue(Prologue prologue) {
         cv.notify_all();
 
         if (epilogue) {
+            Latency_Start(&worker_task[id]);
             epilogue();
+            Latency_EndType(&worker_task[id], 'e');
         }
     });
 }

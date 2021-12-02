@@ -1,24 +1,26 @@
 #pragma once
-#include "lib/transport.h"
+#include "common/log.h"
 #include "common/replica.h"
 #include "common/runner.h"
-#include "common/log.h"
-#include "replication/tombft/message.pb.h"
+#include "lib/transport.h"
 #include "replication/tombft/adapter.h"
+#include "replication/tombft/message.pb.h"
 
 namespace dsnet {
 namespace tombft {
 
-class TOMBFTReplica: public Replica {
+class TOMBFTReplica : public Replica {
 public:
     TOMBFTReplica(
-        const Configuration &config, int replica_index, const string &identifier,
-        int worker_thread_count, Transport *transport, AppReplica *app);
+        const Configuration &config, int replica_index,
+        const string &identifier, int worker_thread_count, Transport *transport,
+        AppReplica *app);
 
-    void ReceiveMessage(const TransportAddress &remote, void *buf, size_t size) override;
+    void ReceiveMessage(
+        const TransportAddress &remote, void *buf, size_t size) override;
 
 private:
-    CTPLRunner runner;
+    CTPLOrderedRunner runner;
     const string identifier;
 
     uint32_t last_message_number;
@@ -34,6 +36,5 @@ private:
     void ExecuteOne(Request &message);
 };
 
-
-}
-}
+} // namespace tombft
+} // namespace dsnet
