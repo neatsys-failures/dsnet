@@ -19,7 +19,7 @@ HotStuffReplica::HotStuffReplica( //
     const Configuration &config, int index, string identifier, int n_thread,
     int batch_size, Transport *transport, AppReplica *app)
     : Replica(config, 0, index, false, transport, app), identifier(identifier),
-      runner(n_thread, true), batch_size(batch_size), log(false) //
+      runner(n_thread), batch_size(batch_size), log(false) //
 {
     setenv("DEBUG", "replica.cc", 1);
 

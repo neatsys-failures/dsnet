@@ -1,38 +1,33 @@
 #include "common/runner.h"
-#include <gtest/gtest.h>
 #include <chrono>
+#include <gtest/gtest.h>
 
 TEST(Runner, Null) {
     //
 }
 
-using dsnet::Runner;
+using dsnet::CTPLRunner;
 
 TEST(Runner, Instance) {
-    Runner runner(8);
+    CTPLRunner runner(8);
     ASSERT_NE(&runner, nullptr);
 }
 
 TEST(Runner, OnePrologue) {
-    Runner runner(8);
-    runner.RunPrologue([]() {
-        return nullptr;
-    });
+    CTPLRunner runner(8);
+    runner.RunPrologue([]() { return nullptr; });
 }
 
 TEST(Runner, OneSolo) {
-    Runner runner(8);
-    runner.RunPrologue([]() {
-        return []() {
-        };
-    });
+    CTPLRunner runner(8);
+    runner.RunPrologue([]() { return []() {}; });
 }
 
 using std::chrono::milliseconds;
 using std::this_thread::sleep_for;
 
 TEST(Runner, SoloOrder) {
-    Runner runner(8);
+    CTPLRunner runner(8);
     int last_solo = 0;
     for (int i = 0; i < 10; i += 1) {
         runner.RunPrologue([i, &last_solo]() {

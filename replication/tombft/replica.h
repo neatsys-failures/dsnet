@@ -18,7 +18,7 @@ public:
     void ReceiveMessage(const TransportAddress &remote, void *buf, size_t size) override;
 
 private:
-    Runner runner;
+    CTPLRunner runner;
     const string identifier;
 
     uint32_t last_message_number;

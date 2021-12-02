@@ -20,7 +20,7 @@ public:
 private:
     // consts
     string identifier;
-    Runner runner;
+    CTPLRunner runner;
     int batch_size;
 
     // single states

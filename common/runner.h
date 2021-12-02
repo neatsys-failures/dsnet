@@ -1,72 +1,65 @@
 #pragma once
-#include <atomic>
+#include "lib/ctpl.h"
 #include <functional>
+#include <mutex>
 #include <thread>
 
 namespace dsnet {
 
-// A runner designed for replication protocol.
-//
-// Pakcet-processing is modeled as a 3-stage task, where the 1st and 3rd stages
-// are stateless and can be parallized arbitrarily, but the 2nd stage is
-// stateful and must be sequentially exeucted, and the order of execution must
-// match the order of task-adding. The 3 stages are named prologue, solo and
-// epilogue. Solo and epilogue are optional.
-//
-// Runner owns a set of worker threads, and try its best to schedule tasks, to
-// accomplish the following objectives:
-// * As long as there are enough number of workers, system overall throughput =
-//   solo throughput
-//   + "enough number" ideally => at least
-//     (prologue latency + epilogue latency) / solo latency
-//     because of minor performance waving worker count should be a little bit
-//     more than it
-// * Solo and epilogue has higher priority than incoming prologue. It is
-// acceptable to execute existing solo and epilogue in any order. As the result,
-//   + the max number of working task is bounded
-//   + tail latency get best-effort control, which helps close-loop benchmark to
-//   get full throughput
-// * When above two objectives are achieved minimize thread idle time, i.e. keep
-//   needed worker count as close to ideal minimum as possible
 class Runner {
 public:
-    Runner(int worker_thread_count, bool ordered_solo = false);
-    ~Runner();
+    Runner();
+    virtual ~Runner();
 
     using Solo = std::function<void()>;
     using Prologue = std::function<Solo()>;
-    void RunPrologue(Prologue prologue);
     using Epilogue = std::function<void()>;
-    void RunEpilogue(Epilogue epilogue);
+
+    virtual void RunPrologue(Prologue prologue) = 0;
+    virtual void RunEpilogue(Epilogue epilogue) = 0;
+
+protected:
+    void SetAffinity(std::thread &t);
 
 private:
-#define WORKER_COUNT_MAX 128
-#define SOLO_RING_SIZE 256
-#define EPILOGUE_RING_SIZE 256
+    int core_id;
+};
 
-    const int worker_thread_count;
-    const bool ordered_solo;
-    std::thread worker_threads[WORKER_COUNT_MAX], solo_thread, epilogue_thread;
-    volatile bool shutdown;
-    void RunWorkerThread(int worker_id);
-    void RunSoloThread();
-    void RunEpilogueThread(bool stable, int worker_id);
-    Epilogue PopEpilogue();
+// * self-document of Runner model
+// * single-threaded executor for debugging
+// * measure the overhead introduced by Runner API
+class NoRunner : public Runner {
+    Epilogue epilogue;
 
-    std::atomic<bool> worker_idle[WORKER_COUNT_MAX];
-    std::atomic<int> idle_hint;
-    Prologue working_prologue[WORKER_COUNT_MAX];
-    int task_order[WORKER_COUNT_MAX];
+public:
+    void RunPrologue(Prologue prologue) override {
+        Solo solo = prologue();
+        if (!solo) {
+            return;
+        }
+        epilogue = nullptr;
+        solo();
+        if (epilogue) {
+            epilogue();
+        }
+    }
+    void RunEpilogue(Epilogue epilogue) override { this->epilogue = epilogue; }
+};
 
-    Solo solo_ring[SOLO_RING_SIZE];
-    std::atomic<int> working_solo, pushing_solo;
-    std::atomic<bool> pending_solo[SOLO_RING_SIZE];
+class CTPLRunner : public Runner {
+    ctpl::thread_pool pool;
+    std::mutex replica_mutex;
+    Epilogue epilogue;
 
-    Epilogue epilogue_ring[EPILOGUE_RING_SIZE];
-    std::atomic<bool> pending_epilogue[EPILOGUE_RING_SIZE];
-    std::atomic<int> last_epilogue;
+public:
+    CTPLRunner(int n_worker) : pool(n_worker) {
+        for (int i = 0; i < n_worker; i += 1) {
+            SetAffinity(pool.get_thread(i));
+        }
+    }
 
-    int last_task;
+    void RunPrologue(Prologue prologue) override;
+    void RunEpilogue(Epilogue epilogue) override { this->epilogue = epilogue; }
 };
 
 } // namespace dsnet
