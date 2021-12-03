@@ -13,6 +13,6 @@ OBJS-hotstuff-client := $(o)client.o $(o)message.o \
 OBJS-hotstuff-replica := $(o)replica.o $(o)message.o \
                $(OBJS-replica) $(LIB-message) \
                $(LIB-configuration) $(LIB-pbmessage) $(LIB-signedadapter) \
-               $(LIB-runner)
+               $(LIB-runner) $(LIB-latency)
 
 $(o)client.o $(o)replica.o: $(o)message.o

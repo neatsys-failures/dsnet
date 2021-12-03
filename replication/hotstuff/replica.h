@@ -33,7 +33,7 @@ public:
 private:
     // consts
     std::string identifier;
-    CTPLOrderedRunner runner;
+    CTPLRunner runner;
     int batch_size;
 
     // single states
@@ -62,6 +62,7 @@ private:
     };
     std::unordered_map<uint64_t, ClientEntry> client_table;
     Log log;
+    std::map<opnum_t, proto::Block> block_buffer;
 
     // tolerant faulty leader not implemented
     int GetPrimary() const { return 0; }

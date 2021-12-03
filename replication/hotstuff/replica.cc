@@ -1,6 +1,7 @@
 #include "replication/hotstuff/replica.h"
 #include "common/signedadapter.h"
 #include "lib/assert.h"
+#include "lib/latency.h"
 #include <cstdlib>
 
 #define RDebug(fmt, ...) Debug("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
@@ -40,8 +41,10 @@ HotStuffReplica::HotStuffReplica( //
             });
         }));
     if (IsPrimary()) {
+        // 80ms timeout: a QC normally collected in about 60ms
+        // TODO skip unnecessary Generic
         send_generic_timeout =
-            unique_ptr<Timeout>(new Timeout(transport, 300, [this]() {
+            unique_ptr<Timeout>(new Timeout(transport, 80, [this]() {
                 runner.RunPrologue([this]() {
                     return [this]() {
                         if (!IsPrimary()) {
@@ -66,7 +69,11 @@ HotStuffReplica::HotStuffReplica( //
     });
 }
 
-HotStuffReplica::~HotStuffReplica() {}
+DEFINE_LATENCY(replica_work);
+
+HotStuffReplica::~HotStuffReplica() {
+    Latency_Dump(&replica_work);
+}
 
 void HotStuffReplica::ReceiveMessage( //
     const TransportAddress &remote, void *buf,
@@ -89,8 +96,10 @@ void HotStuffReplica::ReceiveMessage( //
             switch (message.get_case()) {
             case proto::Message::GetCase::kRequest:
                 return [this, escaping_remote, message]() {
+                    Latency_Start(&replica_work);
                     auto remote = unique_ptr<TransportAddress>(escaping_remote);
                     HandleRequest(*remote, message.request());
+                    Latency_EndType(&replica_work, 'r');
                 };
             case proto::Message::GetCase::kGeneric: {
                 auto &justify = message.generic().block().justify();
@@ -108,15 +117,19 @@ void HotStuffReplica::ReceiveMessage( //
                     }
                 }
                 return [this, escaping_remote, message]() {
+                    Latency_Start(&replica_work);
                     auto remote = unique_ptr<TransportAddress>(escaping_remote);
                     HandleGeneric(*remote, message.generic());
+                    Latency_EndType(&replica_work, 'g');
                 };
             }
             case proto::Message::GetCase::kVote:
                 return [this, escaping_remote, message, owned_buffer]() {
+                    Latency_Start(&replica_work);
                     auto remote =
                         unique_ptr<const TransportAddress>(escaping_remote);
                     HandleVote(*remote, message.vote(), owned_buffer);
+                    Latency_EndType(&replica_work, 'v');
                 };
             default:
                 RPanic("Unexpected message case: %d", message.get_case());
@@ -186,15 +199,18 @@ void HotStuffReplica::HandleVote(
             qc.add_signed_vote(iter.second);
         }
 
-        proto::VoteMessage vote_message;
-        vote_message.set_op_number(vote.op_number());
-        vote_message.set_replica_index(replicaIdx);
-        PBMessage pb_vote(vote_message);
-        SignedAdapter signed_vote(pb_vote, identifier);
-        string signed_vote_buf;
-        signed_vote_buf.resize(signed_vote.SerializedSize());
-        signed_vote.Serialize(&signed_vote_buf.front());
-        qc.add_signed_vote(signed_vote_buf);
+        // it takes too long to add primary's partial signature into QC
+        // so it is disabled until find a good way to do it async.
+
+        // proto::VoteMessage vote_message;
+        // vote_message.set_op_number(vote.op_number());
+        // vote_message.set_replica_index(replicaIdx);
+        // PBMessage pb_vote(vote_message);
+        // SignedAdapter signed_vote(pb_vote, identifier);
+        // string signed_vote_buf;
+        // signed_vote_buf.resize(signed_vote.SerializedSize());
+        // signed_vote.Serialize(&signed_vote_buf.front());
+        // qc.add_signed_vote(signed_vote_buf);
 
         EnterNextView(qc);
     }
@@ -215,14 +231,38 @@ void HotStuffReplica::HandleGeneric(
         "Generic block: op number = %lu (+%u), justify op number = %lu",
         op_offset, generic.block().request_size(),
         generic.block().justify().op_number());
-    if (op_offset != log.LastOpnum() + 1) {
-        NOT_IMPLEMENTED(); // state transfer
+    // if (op_offset != log.LastOpnum() + 1) {
+    //     NOT_IMPLEMENTED(); // state transfer
+    // }
+    if (op_offset < log.LastOpnum()) {
+        return;
     }
-    log.Append(new HotStuffEntry(op_offset));
-    for (int i = 0; i < generic.block().request_size(); i += 1) {
-        opnum_t op_number = op_offset + i + 1;
-        log.Append(new HotStuffEntry(op_number, generic.block().request(i)));
+    if (op_offset > log.LastOpnum() + 1) {
+        block_buffer[op_offset] = generic.block();
+    } else {
+        log.Append(new HotStuffEntry(op_offset));
+        for (int i = 0; i < generic.block().request_size(); i += 1) {
+            opnum_t op_number = op_offset + i + 1;
+            log.Append(
+                new HotStuffEntry(op_number, generic.block().request(i)));
+        }
+
+        auto iter = block_buffer.begin();
+        while (iter != block_buffer.end()) {
+            if (iter->first != log.LastOpnum() + 1) {
+                break;
+            }
+            auto op_offset = iter->first;
+            auto block = iter->second;
+            log.Append(new HotStuffEntry(op_offset));
+            for (int i = 0; i < block.request_size(); i += 1) {
+                opnum_t op_number = op_offset + i + 1;
+                log.Append(new HotStuffEntry(op_number, block.request(i)));
+            }
+            iter = block_buffer.erase(iter);
+        }
     }
+
     if ( //
         !generic_qc ||
         generic.block().justify().op_number() > generic_qc->op_number() //
@@ -255,6 +295,10 @@ void HotStuffReplica::EnterNextView(const proto::QC &justify) {
         opnum_t op_number = commit_qc->op_number();
         op_number < locked_qc->op_number(); op_number += 1 //
     ) {
+        if (op_number > log.LastOpnum()) {
+            NOT_IMPLEMENTED(); // state transfer
+        }
+
         HotStuffEntry &entry = log.Find(op_number)->As<HotStuffEntry>();
         if (entry.state == LOG_STATE_NOOP) {
             continue;
@@ -304,26 +348,26 @@ void HotStuffReplica::SendGeneric() {
     }
     *pending_generic->mutable_block()->mutable_justify() = *generic_qc;
 
-    // runner.RunEpilogue([this, escaping_generic = pending_generic.release()]()
-    // { auto generic = unique_ptr<proto::GenericMessage>(escaping_generic);
-    auto generic = move(pending_generic);
-    proto::Message message;
-    *message.mutable_generic() = *generic;
-    PBMessage pb_layer(message);
-    SignedAdapter signed_layer(pb_layer, identifier);
-    RDebug(
-        "SendGeneric: block op number = %lu (+%u), justify op number = %lu",
-        generic->block().op_number(), generic->block().request_size(),
-        generic->block().justify().op_number());
-    transport->SendMessageToAll(this, signed_layer);
-    // });
+    runner.RunEpilogue([this, escaping_generic = pending_generic.release()]() {
+        auto generic = unique_ptr<proto::GenericMessage>(escaping_generic);
+        // auto generic = move(pending_generic);
+        proto::Message message;
+        *message.mutable_generic() = *generic;
+        PBMessage pb_layer(message);
+        SignedAdapter signed_layer(pb_layer, identifier);
+        RDebug(
+            "SendGeneric: block op number = %lu (+%u), justify op number = %lu",
+            generic->block().op_number(), generic->block().request_size(),
+            generic->block().justify().op_number());
+        transport->SendMessageToAll(this, signed_layer);
+    });
 
     ResetPendingGeneric();
 }
 
 void HotStuffReplica::ResetPendingGeneric() {
     pending_generic.reset(new proto::GenericMessage);
-    RDebug("Reset pending generic: op number = %lu", log.LastOpnum() + 1);
+    RDebug("Assign NOOP: op number = %lu", log.LastOpnum() + 1);
     pending_generic->mutable_block()->set_op_number(log.LastOpnum() + 1);
     log.Append(new HotStuffEntry(log.LastOpnum() + 1));
 }
