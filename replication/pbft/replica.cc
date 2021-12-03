@@ -24,7 +24,7 @@ PBFTReplica::PBFTReplica(
       identifier(identifier), runner(n_worker), batch_size(batch_size),
       view_number(0), op_number(0), commit_number(0), log(true) //
 {
-    // setenv("DEBUG", "all", 1);
+    // setenv("DEBUG", "replica.cc", 1);
 }
 
 PBFTReplica::~PBFTReplica() {
@@ -151,13 +151,16 @@ void PBFTReplica::HandleRequest(
     op_number += 1;
     log.Append(new LogEntry(
         viewstamp_t(view_number, op_number), LOG_STATE_RECEIVED, request));
+    auto &client_entry = client_table.at(request.clientid());
+    client_entry.request_number = request.clientreqid();
+    client_entry.has_reply = false;
 
     proto::Prepare prepare;
     prepare.set_view_number(view_number);
     prepare.set_op_number(op_number);
     prepare.set_digest(log.LastHash());
     prepare.set_replica_id(replicaIdx);
-    // runner.RunEpilogue([this, prepare, signed_message]() mutable {
+    runner.RunEpilogue([this, prepare, signed_message]() mutable {
         PBMessage pb_prepare(prepare);
         SignedAdapter signed_prepare(pb_prepare, identifier);
         string signed_prepare_buffer;
@@ -171,8 +174,10 @@ void PBFTReplica::HandleRequest(
         PBMessage pb_layer(message);
         SignedAdapter signed_layer(pb_layer, identifier, false);
         RDebug("Send Preprepare: op number = %lu", prepare.op_number());
-        transport->SendMessageToAll(this, signed_layer);
-    // });
+        if (!transport->SendMessageToAll(this, signed_layer)) {
+            RWarning("Failed to send Preprepare");
+        }
+    });
 }
 
 void PBFTReplica::HandlePreprepare(
@@ -194,16 +199,31 @@ void PBFTReplica::HandlePreprepare(
         return;
     }
     if (prepare.op_number() != log.LastOpnum() + 1) {
-        NOT_IMPLEMENTED(); // state transfer
+        RDebug("Buffer request: op number = %lu", prepare.op_number());
+        request_buffer[prepare.op_number()] = request;
+    } else {
+        log.Append(new LogEntry(
+            viewstamp_t(view_number, prepare.op_number()), LOG_STATE_RECEIVED,
+            request));
+        auto iter = request_buffer.begin();
+        while (iter != request_buffer.end()) {
+            RDebug("Next buffered: op number = %lu", iter->first);
+            if (iter->first != log.LastOpnum() + 1) {
+                break;
+            }
+            log.Append(new LogEntry(
+                viewstamp_t(view_number, iter->first), LOG_STATE_RECEIVED,
+                iter->second));
+            iter = request_buffer.erase(iter);
+        }
     }
 
-    log.Append(new LogEntry(
-        viewstamp_t(view_number, prepare.op_number()), LOG_STATE_RECEIVED,
-        request));
-
-    prepare_quorum //
-        [prepare.op_number()][prepare.digest()]
-        [configuration.GetLeaderIndex(view_number)] = signed_prepare;
+    InsertPrepare(prepare, signed_prepare);
+    if ( //
+        log.LastOpnum() >= prepare.op_number() &&
+        log.Find(prepare.op_number())->state == LOG_STATE_PREPARED) {
+        return;
+    }
 
     proto::PBFTMessage message;
     *message.mutable_prepare() = prepare;
@@ -211,26 +231,16 @@ void PBFTReplica::HandlePreprepare(
     runner.RunEpilogue([this, message]() mutable {
         PBMessage pb_layer(message);
         SignedAdapter signed_layer(pb_layer, identifier);
+        RDebug(
+            "Broadcast Prepare: op number = %lu",
+            message.prepare().op_number());
         transport->SendMessageToAll(this, signed_layer);
     });
 }
 
-void PBFTReplica::HandlePrepare(
-    const TransportAddress &remote, const proto::Prepare &prepare,
-    const std::string &signed_prepare //
+void PBFTReplica::InsertPrepare(
+    const proto::Prepare &prepare, const string &signed_prepare //
 ) {
-    if (prepare.view_number() < view_number) {
-        return;
-    }
-    if (prepare.view_number() > view_number) {
-        NOT_IMPLEMENTED(); // state transfer
-    }
-    if (prepare.op_number() > log.LastOpnum()) {
-        NOT_IMPLEMENTED(); // state transfer
-    }
-    if (log.Find(prepare.op_number())->state != LOG_STATE_RECEIVED) {
-        return;
-    }
 
     prepare_quorum //
         [prepare.op_number()][prepare.digest()][prepare.replica_id()] =
@@ -252,6 +262,11 @@ void PBFTReplica::HandlePrepare(
     ) {
         return;
     }
+    RDebug("PREPARED: op number = %lu", prepare.op_number());
+
+    if (prepare.op_number() > log.LastOpnum()) {
+        NOT_IMPLEMENTED(); // state transfer
+    }
 
     log.Find(prepare.op_number())->state = LOG_STATE_PREPARED;
     proto::PBFTMessage message;
@@ -265,6 +280,25 @@ void PBFTReplica::HandlePrepare(
         SignedAdapter signed_layer(pb_layer, identifier);
         transport->SendMessageToAll(this, signed_layer);
     });
+}
+
+void PBFTReplica::HandlePrepare(
+    const TransportAddress &remote, const proto::Prepare &prepare,
+    const std::string &signed_prepare //
+) {
+    if (prepare.view_number() < view_number) {
+        return;
+    }
+    if (prepare.view_number() > view_number) {
+        NOT_IMPLEMENTED(); // state transfer
+    }
+    if ( //
+        prepare.op_number() <= log.LastOpnum() &&
+        log.Find(prepare.op_number())->state != LOG_STATE_RECEIVED) {
+        return;
+    }
+
+    InsertPrepare(prepare, signed_prepare);
 }
 
 struct ExecuteContext {
@@ -282,10 +316,9 @@ void PBFTReplica::HandleCommit(
     if (commit.view_number() > view_number) {
         NOT_IMPLEMENTED(); // state transfer
     }
-    if (commit.op_number() > log.LastOpnum()) {
-        NOT_IMPLEMENTED(); // state transfer
-    }
-    if (log.Find(commit.op_number())->state == LOG_STATE_COMMITTED) {
+    if ( //
+        commit.op_number() <= log.LastOpnum() &&
+        log.Find(commit.op_number())->state == LOG_STATE_COMMITTED) {
         return;
     }
 
@@ -299,6 +332,12 @@ void PBFTReplica::HandleCommit(
         return;
     }
     // TODO check prepare quorum as well
+
+    RDebug("COMMITTED: op number = %lu", commit.op_number());
+
+    if (commit.op_number() > log.LastOpnum()) {
+        NOT_IMPLEMENTED(); // state transfer
+    }
 
     log.Find(commit.op_number())->state = LOG_STATE_COMMITTED;
 

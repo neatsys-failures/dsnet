@@ -3,8 +3,9 @@ import pathlib
 sys.path.append(pathlib.Path() / 'run')
 import common
 import pyrem.task
+import time
 
-common.setup('TOMBFT performance')
+common.setup('PBFT performance')
 
 duration = 10
 def replica_cmd(index):
@@ -14,7 +15,7 @@ def replica_cmd(index):
         '-c', common.proj_dir + 'run/nsl.txt',
         '-m', 'pbft',
         '-i', f'{index}',
-        '-w', '8',
+        '-w', '4',
     ]
 client_cmd = [
     'timeout', f'{duration + 3}',
@@ -30,9 +31,10 @@ replica_task = [None] * 4
 for i in range(4):
     replica_task[i] = common.node[i + 1].run(replica_cmd(i), return_output=True)
     replica_task[i].start()
+time.sleep(0.1)
 client_task = [
     common.node[5].run(client_cmd, return_output=True)
-    for _ in range(12)
+    for _ in range(1)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
 

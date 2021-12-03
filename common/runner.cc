@@ -130,4 +130,34 @@ void CTPLOrderedRunner::RunPrologue(Prologue prologue) {
     });
 }
 
+void CTPLPipelineRunner::RunPrologue(Prologue prologue) {
+    Latency_Start(&driver_spin);
+    pool.push([this, prologue](int id) {
+        Latency_Start(&worker_task[id + 1]);
+        Solo solo = prologue();
+        Latency_EndType(&worker_task[id + 1], 'p');
+
+        if (solo) {
+            Latency_Start(&worker_spin[id + 1]);
+            replica_pool.push([this, solo](int id) {
+                Latency_Start(&worker_task[0]);
+                solo();
+                Latency_EndType(&worker_task[0], 's');
+            });
+            Latency_EndType(&worker_spin[id + 1], 's');
+        }
+    });
+    Latency_End(&driver_spin);
+}
+
+void CTPLPipelineRunner::RunEpilogue(Epilogue epilogue) {
+    Latency_Start(&worker_spin[0]);
+    pool.push([epilogue](int id) {
+        Latency_Start(&worker_task[id + 1]);
+        epilogue();
+        Latency_EndType(&worker_task[id + 1], 'e');
+    });
+    Latency_EndType(&worker_spin[0], 'e');
+}
+
 } // namespace dsnet

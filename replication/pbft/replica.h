@@ -40,6 +40,7 @@ private:
         opnum_t, //
         std::unordered_map<std::string, std::unordered_map<int, std::string>>>
         prepare_quorum, commit_quorum;
+    std::map<opnum_t, Request> request_buffer;
 
     bool IsPrimary() const {
         return configuration.GetLeaderIndex(view_number) == replicaIdx;
@@ -57,6 +58,9 @@ private:
     void HandleCommit(
         const TransportAddress &remote, const proto::Commit &commit,
         const std::string &signed_commit);
+
+    void InsertPrepare(
+        const proto::Prepare &prepare, const std::string &signed_prepare);
 };
 
 } // namespace pbft

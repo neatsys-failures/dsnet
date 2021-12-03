@@ -83,4 +83,21 @@ public:
     void RunEpilogue(Epilogue epilogue) override { this->epilogue = epilogue; }
 };
 
+// Problem of pipeline model: replica thread spends lot of time pushing epilogue
+// need to use with a non-blocking RunEpilogue
+class CTPLPipelineRunner : public Runner {
+    ctpl::thread_pool pool, replica_pool;
+
+public:
+    CTPLPipelineRunner(int n_worker) : pool(n_worker - 1), replica_pool(1) {
+        SetAffinity(replica_pool.get_thread(0));
+        for (int i = 0; i < n_worker - 1; i += 1) {
+            SetAffinity(pool.get_thread(i));
+        }
+    }
+
+    void RunPrologue(Prologue prologue) override;
+    void RunEpilogue(Epilogue epilogue) override;
+};
+
 } // namespace dsnet
