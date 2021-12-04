@@ -69,6 +69,17 @@ private:
     int GetPrimary() const { return 0; }
     bool IsPrimary() const { return replicaIdx == GetPrimary(); }
 
+    // util state
+    std::vector<Runner::Epilogue> epilogue_list;
+    void ConcludeEpilogue() {
+        runner.RunEpilogue([epilogue_list = this->epilogue_list] {
+            for (Runner::Epilogue epilogue : epilogue_list) {
+                epilogue();
+            }
+        });
+        epilogue_list.clear();
+    }
+
     void HandleRequest(const TransportAddress &remote, const Request &request);
     void HandleVote(
         const TransportAddress &remote, const proto::VoteMessage &vote,

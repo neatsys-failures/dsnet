@@ -24,17 +24,17 @@ client_cmd = [
     '-m', 'hotstuff',
     '-h', '11.0.0.101',
     '-u', f'{duration}',
-    '-t', '20',
+    '-t', '14',
 ]
 
 replica_task = [None] * 4
 for i in (1, 2, 3, 0):
     replica_task[i] = common.node[i + 1].run(replica_cmd(i), return_output=True)
     replica_task[i].start()
-time.sleep(0.8)
+time.sleep(0.5)
 client_task = [
     common.node[5].run(client_cmd, return_output=True)
-    for _ in range(8)
+    for _ in range(10)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
 

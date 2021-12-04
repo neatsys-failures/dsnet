@@ -15,6 +15,7 @@ namespace hotstuff {
 using std::move;
 using std::string;
 using std::unique_ptr;
+using std::vector;
 
 HotStuffReplica::HotStuffReplica( //
     const Configuration &config, int index, string identifier, int n_thread,
@@ -37,6 +38,7 @@ HotStuffReplica::HotStuffReplica( //
                     } else {
                         SendVote(0);
                     }
+                    ConcludeEpilogue();
                 };
             });
         }));
@@ -53,6 +55,7 @@ HotStuffReplica::HotStuffReplica( //
                         }
                         RNotice("Send generic on timeout");
                         SendGeneric();
+                        ConcludeEpilogue();
                     };
                 });
             }));
@@ -76,6 +79,7 @@ HotStuffReplica::HotStuffReplica( //
                 vote0.resize(signed_vote.SerializedSize());
                 signed_vote.Serialize(&vote0.front());
             }
+            ConcludeEpilogue();
         };
     });
 }
@@ -108,6 +112,7 @@ void HotStuffReplica::ReceiveMessage( //
                     Latency_Start(&replica_work);
                     auto remote = unique_ptr<TransportAddress>(escaping_remote);
                     HandleRequest(*remote, message.request());
+                    ConcludeEpilogue();
                     Latency_EndType(&replica_work, 'r');
                 };
             case proto::Message::GetCase::kGeneric: {
@@ -129,6 +134,7 @@ void HotStuffReplica::ReceiveMessage( //
                     Latency_Start(&replica_work);
                     auto remote = unique_ptr<TransportAddress>(escaping_remote);
                     HandleGeneric(*remote, message.generic());
+                    ConcludeEpilogue();
                     Latency_EndType(&replica_work, 'g');
                 };
             }
@@ -138,6 +144,7 @@ void HotStuffReplica::ReceiveMessage( //
                     auto remote =
                         unique_ptr<const TransportAddress>(escaping_remote);
                     HandleVote(*remote, message.vote(), owned_buffer);
+                    ConcludeEpilogue();
                     Latency_EndType(&replica_work, 'v');
                 };
             default:
@@ -220,8 +227,8 @@ void HotStuffReplica::HandleVote(
         // signed_vote_buf.resize(signed_vote.SerializedSize());
         // signed_vote.Serialize(&signed_vote_buf.front());
         // qc.add_signed_vote(signed_vote_buf);
-        qc.add_signed_vote(vote0);  // currently backup don't check vote op number
-
+        qc.add_signed_vote(
+            vote0); // currently backup don't check vote op number
         EnterNextView(qc);
     }
 }
@@ -288,9 +295,13 @@ struct ExecuteContext {
 
 void HotStuffReplica::EnterNextView(const proto::QC &justify) {
     RDebug("Enter new view: justified op_number = %lu", justify.op_number());
-    if (justify.op_number() != 0) {
-        log.Find(justify.op_number())->As<HotStuffEntry>().justify = justify;
-    }
+    // not using the justify until view change, but there is no view change in
+    // hotstuff
+    // and it causes crashing without proper state transfer
+
+    // if (justify.op_number() != 0) {
+    //     log.Find(justify.op_number())->As<HotStuffEntry>().justify = justify;
+    // }
 
     auto commit_qc = move(locked_qc);
     locked_qc = move(generic_qc);
@@ -300,7 +311,6 @@ void HotStuffReplica::EnterNextView(const proto::QC &justify) {
         return;
     }
 
-    std::vector<Runner::Epilogue> epilogue_list;
     for ( //
         opnum_t op_number = commit_qc->op_number();
         op_number < locked_qc->op_number(); op_number += 1 //
@@ -337,12 +347,6 @@ void HotStuffReplica::EnterNextView(const proto::QC &justify) {
         } else {
             RWarning("Client entry not found, skip send reply");
         }
-
-        runner.RunEpilogue([this, epilogue_list] {
-            for (Runner::Epilogue epilogue : epilogue_list) {
-                epilogue();
-            }
-        });
     }
 }
 
@@ -358,7 +362,10 @@ void HotStuffReplica::SendGeneric() {
     }
     *pending_generic->mutable_block()->mutable_justify() = *generic_qc;
 
-    runner.RunEpilogue([this, escaping_generic = pending_generic.release()]() {
+    epilogue_list.push_back([ //
+                                this,
+                                escaping_generic = pending_generic.release() //
+    ]() {
         auto generic = unique_ptr<proto::GenericMessage>(escaping_generic);
         // auto generic = move(pending_generic);
         proto::Message message;
@@ -369,6 +376,11 @@ void HotStuffReplica::SendGeneric() {
             "SendGeneric: block op number = %lu (+%u), justify op number = %lu",
             generic->block().op_number(), generic->block().request_size(),
             generic->block().justify().op_number());
+        if (signed_layer.SerializedSize() > 1400) {
+            Panic(
+                "Generic message too large: %lu",
+                signed_layer.SerializedSize());
+        }
         transport->SendMessageToAll(this, signed_layer);
     });
 
@@ -383,7 +395,7 @@ void HotStuffReplica::ResetPendingGeneric() {
 }
 
 void HotStuffReplica::SendVote(opnum_t op_number) {
-    runner.RunEpilogue([this, op_number]() {
+    epilogue_list.push_back([this, op_number]() {
         proto::Message message;
         auto &vote = *message.mutable_vote();
         vote.set_op_number(op_number);
