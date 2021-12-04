@@ -9,7 +9,7 @@ common.setup('Baseline performance')
 duration = 10
 def replica_cmd(index):
     return [
-        'timeout', f'{duration + 3}',
+        'timeout', f'{duration + 5}',
         common.proj_dir + 'bench/replica',
         '-c', common.proj_dir + 'run/nsl.txt',
         '-m', 'signedunrep',

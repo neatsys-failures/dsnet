@@ -9,12 +9,12 @@ common.setup('TOMBFT performance')
 duration = 10
 def replica_cmd(index):
     return [
-        'timeout', f'{duration + 3}',
+        'timeout', f'{duration + 5}',
         common.proj_dir + 'bench/replica',
         '-c', common.proj_dir + 'run/nsl.txt',
         '-m', 'tombft',
         '-i', f'{index}',
-        '-w', '12',
+        '-w', '14',
     ]
 client_cmd = [
     'timeout', f'{duration + 3}',
@@ -23,17 +23,16 @@ client_cmd = [
     '-m', 'tombft',
     '-h', '11.0.0.101',
     '-u', f'{duration}',
-    '-t', '4',
+    '-t', '6',
 ]
 
 replica_task = [None] * 4
 for i in range(4):
-    # if i == 1: continue
     replica_task[i] = common.node[i + 1].run(replica_cmd(i), kill_remote=False, return_output=True)
     replica_task[i].start()
 client_task = [
     common.node[5].run(client_cmd, return_output=True)
-    for _ in range(14)
+    for _ in range(16)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
 

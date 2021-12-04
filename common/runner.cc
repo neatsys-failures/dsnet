@@ -160,4 +160,91 @@ void CTPLPipelineRunner::RunEpilogue(Epilogue epilogue) {
     Latency_EndType(&worker_spin[0], 'e');
 }
 
+SpinOrderedRunner::SpinOrderedRunner(int n_worker) : n_worker(n_worker) {
+    if (n_worker > N_WORKER_MAX) {
+        Panic("Too many workers");
+    }
+    if (n_slot() > N_SLOT_MAX) {
+        Panic("Not enough slot");
+    }
+
+    for (int i = 0; i < n_slot(); i += 1) {
+        slot_ready[i] = true;
+    }
+    next_prologue = next_solo = 0;
+
+    for (int i = 0; i < n_worker; i += 1) {
+        workers[i] = thread([this, i] { RunWorkerThread(i); });
+        SetAffinity(workers[i]);
+    }
+}
+
+SpinOrderedRunner::~SpinOrderedRunner() {
+    shutdown = true;
+    for (int i = 0; i < n_worker; i += 1) {
+        workers[i].join();
+    }
+}
+
+void SpinOrderedRunner::RunPrologue(Prologue prologue) {
+    Latency_Start(&driver_spin);
+    // it is unnecessary to check for `shutdown` during this spinning
+    // since if driver thread is spinning here, no one will set `shutdown`
+    // anyway
+    while (!slot_ready[next_prologue]) {
+    }
+    Latency_End(&driver_spin);
+
+    prologue_slots[next_prologue] = prologue;
+    slot_ready[next_prologue] = false;
+    next_prologue = (next_prologue + 1) % n_slot();
+}
+
+void SpinOrderedRunner::RunEpilogue(Epilogue epilogue) {
+    epilogue_slots[next_solo] = epilogue;
+}
+
+void SpinOrderedRunner::RunWorkerThread(int id) {
+    int slot_id = id;
+    while (true) {
+        Latency_Start(&worker_spin[id]);
+        while (slot_ready[slot_id] && !shutdown) {
+        }
+        if (shutdown) {
+            return;
+        }
+        Latency_EndType(&worker_spin[id], 'p');
+
+        Latency_Start(&worker_task[id]);
+        Solo solo = prologue_slots[slot_id]();
+        prologue_slots[slot_id] = nullptr;
+        slot_ready[slot_id] = true;
+        Latency_EndType(&worker_task[id], 'p');
+
+        if (solo) {
+            Latency_Start(&worker_spin[id]);
+            while (next_solo != slot_id && !shutdown) {
+            }
+            if (shutdown) {
+                return;
+            }
+            Latency_EndType(&worker_spin[id], 's');
+
+            Latency_Start(&worker_task[id]);
+            solo();
+            next_solo = (next_solo + 1) % n_slot();
+            Latency_EndType(&worker_task[id], 's');
+
+            if (epilogue_slots[slot_id]) {
+                Latency_Start(&worker_task[id]);
+                epilogue_slots[slot_id]();
+                epilogue_slots[slot_id] = nullptr;
+                Latency_EndType(&worker_task[id], 'e');
+            }
+        }
+
+        slot_id = (slot_id + n_worker) % n_slot();
+    }
+}
+
 } // namespace dsnet

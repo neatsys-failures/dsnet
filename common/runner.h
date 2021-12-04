@@ -1,5 +1,6 @@
 #pragma once
 #include "lib/ctpl.h"
+#include <atomic>
 #include <condition_variable>
 #include <functional>
 #include <mutex>
@@ -96,6 +97,35 @@ public:
         }
     }
 
+    void RunPrologue(Prologue prologue) override;
+    void RunEpilogue(Epilogue epilogue) override;
+};
+
+// seems to be fastest runner for now
+// the downside of `SpinOrderedRunner` is that it uses a bounded queue
+// (i.e. ring) buffer, and back-propagate blocking to `RunPrologue`
+// caller if system overloaded. If client not slow down requesting soon
+// enough, it could cause severe packet dropping
+class SpinOrderedRunner : public Runner {
+    int n_worker;
+    static const int N_WORKER_MAX = 128;
+    std::thread workers[N_WORKER_MAX];
+    std::atomic<bool> shutdown;
+
+    int n_slot() const { return n_worker * 4; }
+    static const int N_SLOT_MAX = 1000;
+    Prologue prologue_slots[N_SLOT_MAX];
+    Epilogue epilogue_slots[N_SLOT_MAX];
+    std::atomic<bool> slot_ready[N_SLOT_MAX];
+
+    int next_prologue;
+    std::atomic<int> next_solo;
+
+    void RunWorkerThread(int id);
+
+public:
+    SpinOrderedRunner(int n_worker);
+    ~SpinOrderedRunner();
     void RunPrologue(Prologue prologue) override;
     void RunEpilogue(Epilogue epilogue) override;
 };

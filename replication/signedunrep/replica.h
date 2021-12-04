@@ -37,7 +37,7 @@ private:
     std::map<uint64_t, ClientTableEntry> clientTable;
 
     const std::string identifier;
-    CTPLRunner runner;
+    SpinOrderedRunner runner;
 };
 
 } 

@@ -20,7 +20,7 @@ public:
         const TransportAddress &remote, void *buf, size_t size) override;
 
 private:
-    CTPLOrderedRunner runner;
+    SpinOrderedRunner runner;
     const string identifier;
 
     uint32_t last_message_number;
