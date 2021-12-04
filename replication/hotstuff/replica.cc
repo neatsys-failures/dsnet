@@ -41,10 +41,11 @@ HotStuffReplica::HotStuffReplica( //
             });
         }));
     if (IsPrimary()) {
-        // 80ms timeout: a QC normally collected in about 60ms
+        // 20ms timeout: a QC normally collected within 10ms
+        // using 10ms may crash with unknown reason
         // TODO skip unnecessary Generic
         send_generic_timeout =
-            unique_ptr<Timeout>(new Timeout(transport, 80, [this]() {
+            unique_ptr<Timeout>(new Timeout(transport, 20, [this]() {
                 runner.RunPrologue([this]() {
                     return [this]() {
                         if (!IsPrimary()) {
@@ -64,6 +65,16 @@ HotStuffReplica::HotStuffReplica( //
                 SendVote(0);
             } else {
                 ResetPendingGeneric();
+
+                // patch for reason in HandleVote
+                // only work without leader change
+                proto::VoteMessage vote_message;
+                vote_message.set_op_number(0);
+                vote_message.set_replica_index(replicaIdx);
+                PBMessage pb_vote(vote_message);
+                SignedAdapter signed_vote(pb_vote, this->identifier);
+                vote0.resize(signed_vote.SerializedSize());
+                signed_vote.Serialize(&vote0.front());
             }
         };
     });
@@ -71,9 +82,7 @@ HotStuffReplica::HotStuffReplica( //
 
 DEFINE_LATENCY(replica_work);
 
-HotStuffReplica::~HotStuffReplica() {
-    Latency_Dump(&replica_work);
-}
+HotStuffReplica::~HotStuffReplica() { Latency_Dump(&replica_work); }
 
 void HotStuffReplica::ReceiveMessage( //
     const TransportAddress &remote, void *buf,
@@ -211,6 +220,7 @@ void HotStuffReplica::HandleVote(
         // signed_vote_buf.resize(signed_vote.SerializedSize());
         // signed_vote.Serialize(&signed_vote_buf.front());
         // qc.add_signed_vote(signed_vote_buf);
+        qc.add_signed_vote(vote0);  // currently backup don't check vote op number
 
         EnterNextView(qc);
     }

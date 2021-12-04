@@ -24,7 +24,7 @@ client_cmd = [
     '-m', 'hotstuff',
     '-h', '11.0.0.101',
     '-u', f'{duration}',
-    '-t', '18',
+    '-t', '20',
 ]
 
 replica_task = [None] * 4

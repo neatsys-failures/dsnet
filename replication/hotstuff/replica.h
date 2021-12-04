@@ -35,6 +35,8 @@ private:
     std::string identifier;
     CTPLRunner runner;
     int batch_size;
+    using SignedVote = std::string;
+    SignedVote vote0;
 
     // single states
     std::unique_ptr<Timeout> resend_vote_timeout;
@@ -47,7 +49,6 @@ private:
     // in-construct QCs, only on primary, op number -> repica id -> partial sig
     // op number is the "hash" of block in vote message, we pretend it could
     // prove content matching for now
-    using SignedVote = std::string;
     std::unordered_map<uint64_t, std::unordered_map<int, SignedVote>> high_qc;
 
     struct ClientEntry {
