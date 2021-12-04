@@ -47,8 +47,9 @@ void SignedUnrepReplica::HandleRequest(
     viewstamp_t v(0, last_op);
     log.Append(new LogEntry(v, LOG_STATE_RECEIVED, msg.req()));
 
-    auto m = unique_ptr<ToClientMessage>(new ToClientMessage);
-    ReplyMessage *reply = m->mutable_reply();
+    // auto m = unique_ptr<ToClientMessage>(new ToClientMessage);
+    ToClientMessage m;
+    ReplyMessage *reply = m.mutable_reply();
     Execute(last_op, msg.req(), *reply);
     // The protocol defines these as required, even if they're not
     // meaningful.
@@ -56,17 +57,16 @@ void SignedUnrepReplica::HandleRequest(
     reply->set_opnum(last_op);
     *reply->mutable_req() = msg.req();
 
-    UpdateClientTable(msg.req(), *m);
+    UpdateClientTable(msg.req(), m);
 
-    runner.RunEpilogue(
-        [this, leaked_remote = remote.clone(), leaked_m = m.release()]() {
-            auto remote = unique_ptr<TransportAddress>(leaked_remote);
-            auto m = unique_ptr<ToClientMessage>(leaked_m);
-            PBMessage pb_m(*m);
-            if (!(transport->SendMessage(
-                    this, *remote, SignedAdapter(pb_m, identifier, false))))
-                Warning("Failed to send reply message");
-        });
+    runner.RunEpilogue([this, leaked_remote = remote.clone(), m]() mutable {
+        auto remote = unique_ptr<TransportAddress>(leaked_remote);
+        // auto m = unique_ptr<ToClientMessage>(leaked_m);
+        PBMessage pb_m(m);
+        if (!(transport->SendMessage(
+                this, *remote, SignedAdapter(pb_m, identifier, false))))
+            Warning("Failed to send reply message");
+    });
     // Latency_End(&handle_request);
 }
 
