@@ -1,0 +1,39 @@
+syntax = "proto3";
+
+package dsnet.minbft.proto;
+
+message MinBFTMessage {
+    oneof sub {
+        bytes signed_request = 1;  // Signed[dsnet.Request]
+        bytes ui_message = 2;  // MinBFT[UIMessage]
+    }
+}
+
+// Prepare and Commit include a UI that is in MinBFT[] layer
+message UIMessage {
+    oneof sub {
+        Prepare prepare = 1;
+        Commit commit = 2;
+    }
+    // convinent field serving as identifier -> replica reverse lookup
+    // that should be implemented on signed layer
+    int32 replica_id = 3;
+}
+
+message Reply {
+    bytes result = 1;
+    int32 replica_id = 2;
+    uint64 request_number = 3;
+}
+
+message Prepare {
+    uint64 view_number = 1;
+    int32 replica_id = 2;
+    bytes signed_request = 3;
+}
+
+message Commit {
+    uint64 view_number = 1;
+    int32 replica_id = 2;
+    bytes minbft_prepare = 3;  // MinBFT[UIMessage::Prepare]
+}

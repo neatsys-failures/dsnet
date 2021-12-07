@@ -9,4 +9,5 @@ include \
 	$(d)signedunrep/Rules.mk \
 	$(d)tombft/Rules.mk \
 	$(d)hotstuff/Rules.mk \
-	$(d)pbft/Rules.mk
+	$(d)pbft/Rules.mk \
+	$(d)minbft/Rules.mk
