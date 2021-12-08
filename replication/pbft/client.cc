@@ -47,10 +47,11 @@ void PBFTClient::Invoke(const string &op, continuation_t then) {
     request.set_clientid(clientid);
     request.set_clientreqid(request_number);
     request.set_op(op);
-    request.set_clientaddr(node_addr_->Serialize());
+    // request.set_clientaddr(node_addr_->Serialize());
     pending_request->message = message;
 
-    SendRequest(false);
+    // to let replicas logging client address
+    SendRequest(request_number == 1);
 }
 
 void PBFTClient::SendRequest(bool broadcast) {

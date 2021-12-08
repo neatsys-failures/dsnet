@@ -33,6 +33,7 @@ private:
         opnum_t request_number;
         proto::Reply reply;
         bool has_reply;
+        std::unique_ptr<TransportAddress> remote;
     };
     std::unordered_map<uint64_t, ClientEntry> client_table;
     Log log;

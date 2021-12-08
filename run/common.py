@@ -85,7 +85,9 @@ def wait_client(client_task):
     throughput_sum = 0
     median_latency_max = 0
     for i, task in enumerate(client_task):
-        output = task.return_values['stderr'].decode()
+        output = pyrem.host.RemoteHost(task.host).run(
+            ['cat', proj_dir + f'client-{i}.txt'], return_output=True,
+        ).start(wait=True)['stdout'].decode()
         match = re.search(r'Total throughput is (\d+) ops/sec$', output, re.MULTILINE)
         if match is not None:
             throughput_sum += int(match[1])

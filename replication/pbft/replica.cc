@@ -143,16 +143,24 @@ void PBFTReplica::HandleRequest(
         }
     } else {
         ClientEntry entry;
+        if (request.clientreqid() != 1) {
+            NOT_IMPLEMENTED();
+        }
         entry.request_number = request.clientreqid();
         entry.has_reply = false;
+        entry.remote = unique_ptr<TransportAddress>(remote.clone());
         client_table.emplace(request.clientid(), move(entry));
     }
 
     if (!IsPrimary()) {
-        transport->SendMessageToReplica(
-            this, configuration.GetLeaderIndex(view_number),
-            BufferMessage(signed_message.data(), signed_message.size()));
-        // TODO schedule view change
+        // the workaroud results in a small pitfall: system stuck if view 0
+        // primary crash from the beginning i would assume that never happen :)
+        if (request.clientreqid() != 1) {
+            transport->SendMessageToReplica(
+                this, configuration.GetLeaderIndex(view_number),
+                BufferMessage(signed_message.data(), signed_message.size()));
+            // TODO schedule view change
+        }
         return;
     }
 
@@ -400,11 +408,12 @@ void PBFTReplica::HandleCommit(
         client_entry.request_number = entry->request.clientreqid();
         client_entry.has_reply = true;
         client_entry.reply = reply;
+        auto remote =
+            unique_ptr<TransportAddress>(client_entry.remote->clone());
 
         epilogue_list.push_back(
-            [this, reply, addr = entry->request.clientaddr()]() mutable {
-                auto remote = unique_ptr<TransportAddress>(
-                    transport->LookupAddress(ReplicaAddress(addr)));
+            [this, reply, escaping_remote = remote.release()]() mutable {
+                auto remote = unique_ptr<TransportAddress>(escaping_remote);
                 transport->SendMessage(this, *remote, PBMessage(reply));
             });
     }

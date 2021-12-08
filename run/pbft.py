@@ -16,17 +16,19 @@ def replica_cmd(index):
         '-m', 'pbft',
         '-i', f'{index}',
         '-w', '14',
-        '-b', '10',
+        '-b', '20',
     ]
-client_cmd = [
-    'timeout', f'{duration + 3}',
-    common.proj_dir  + 'bench/client',
-    '-c', common.proj_dir + 'run/nsl.txt',
-    '-m', 'pbft',
-    '-h', '11.0.0.101',
-    '-u', f'{duration}',
-    '-t', '20',
-]
+def client_cmd(index):
+    return [
+        'timeout', f'{duration + 3}',
+        common.proj_dir  + 'bench/client',
+        '-c', common.proj_dir + 'run/nsl.txt',
+        '-m', 'pbft',
+        '-h', '11.0.0.101',
+        '-u', f'{duration}',
+        '-t', '40',
+        '2>', common.proj_dir + f'client-{index}.txt',
+    ]
 
 replica_task = [None] * 4
 for i in range(4):
@@ -34,8 +36,8 @@ for i in range(4):
     replica_task[i].start()
 time.sleep(0.1)
 client_task = [
-    common.node[5].run(client_cmd, return_output=True)
-    for _ in range(6)
+    common.node[5].run(client_cmd(i), kill_remote=False)
+    for i in range(6)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
 
