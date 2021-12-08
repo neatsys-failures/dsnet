@@ -27,8 +27,14 @@ PBFTReplica::PBFTReplica(
 {
     // setenv("DEBUG", "replica.cc", 1);
 
-    close_batch_timeout = unique_ptr<Timeout>(
-        new Timeout(transport, 10, [this] { CloseBatch(); }));
+    close_batch_timeout =
+        unique_ptr<Timeout>(new Timeout(transport, 10, [this] {
+            runner.RunPrologue([this] {
+                return [this] {
+                    CloseBatch();
+                };
+            });
+        }));
 }
 
 PBFTReplica::~PBFTReplica() {

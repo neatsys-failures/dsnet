@@ -29,45 +29,32 @@ HotStuffReplica::HotStuffReplica( //
         unique_ptr<Timeout>(new Timeout(transport, 1000, [this]() {
             runner.RunPrologue([this]() {
                 return [this]() {
-                    if (IsPrimary()) {
-                        NOT_REACHABLE();
-                    }
                     RWarning("Resend VoteMessage");
-                    if (generic_qc) {
-                        SendVote(generic_qc->op_number());
-                    } else {
-                        SendVote(0);
-                    }
+                    SendVote(generic_qc ? generic_qc->op_number() : 0);
                     ConcludeEpilogue();
                 };
             });
         }));
-    if (IsPrimary()) {
-        // 20ms timeout: a QC normally collected within 10ms
-        // using 10ms may crash with unknown reason
-        // TODO skip unnecessary Generic
-        send_generic_timeout =
-            unique_ptr<Timeout>(new Timeout(transport, 20, [this]() {
-                runner.RunPrologue([this]() {
-                    return [this]() {
-                        if (!IsPrimary()) {
-                            NOT_REACHABLE();
-                        }
-                        RNotice("Send generic on timeout");
-                        SendGeneric();
-                        ConcludeEpilogue();
-                    };
-                });
-            }));
-        send_generic_timeout->Start();
-    }
+
+    // 20ms timeout: a QC normally collected within 10ms
+    // using 10ms may crash with unknown reason
+    close_batch_timeout =
+        unique_ptr<Timeout>(new Timeout(transport, 10, [this]() {
+            runner.RunPrologue([this]() {
+                return [this]() {
+                    RNotice("Send generic on timeout");
+                    CloseBatch();
+                    ConcludeEpilogue();
+                };
+            });
+        }));
 
     runner.RunPrologue([this]() {
         return [this]() {
             if (!IsPrimary()) {
                 SendVote(0);
             } else {
-                ResetPendingGeneric();
+                StartNextBatch();
 
                 // patch for reason in HandleVote
                 // only work without leader change
@@ -185,8 +172,11 @@ void HotStuffReplica::HandleRequest(
         log.Append(new HotStuffEntry(op_number, request));
 
         *pending_generic->mutable_block()->add_request() = request;
+        if (!close_batch_timeout->Active()) {
+            close_batch_timeout->Start();
+        }
         if (pending_generic->block().request_size() >= batch_size) {
-            SendGeneric();
+            CloseBatch();
         }
     }
 }
@@ -230,6 +220,8 @@ void HotStuffReplica::HandleVote(
         qc.add_signed_vote(
             vote0); // currently backup don't check vote op number
         EnterNextView(qc);
+        // should we adaptive batching?
+        CloseBatch();
     }
 }
 
@@ -348,13 +340,21 @@ void HotStuffReplica::EnterNextView(const proto::QC &justify) {
             RWarning("Client entry not found, skip send reply");
         }
     }
+
+    if (log.Last() != nullptr && log.Last()->state == LOG_STATE_COMMITTED) {
+        close_batch_timeout->Stop();
+    }
 }
 
-void HotStuffReplica::SendGeneric() {
+void HotStuffReplica::CloseBatch() {
     if (!IsPrimary()) {
         NOT_REACHABLE();
     }
-    send_generic_timeout->Reset();
+
+    // cannot stop close batch immediately, or current batch may not progress
+    // postpone until they are committed, i.e. after three more Generic
+    // (few lines above)
+    // close_batch_timeout->Stop();
 
     if (!generic_qc) {
         RWarning("Generic QC not present, skip send GenericMessage");
@@ -384,10 +384,13 @@ void HotStuffReplica::SendGeneric() {
         transport->SendMessageToAll(this, signed_layer);
     });
 
-    ResetPendingGeneric();
+    StartNextBatch();
 }
 
-void HotStuffReplica::ResetPendingGeneric() {
+// insert one NOOP in the beginning of every batch
+// to force every batch has different depth and hash
+// either hash is the real hash or simulated by op number
+void HotStuffReplica::StartNextBatch() {
     pending_generic.reset(new proto::GenericMessage);
     RDebug("Assign NOOP: op number = %lu", log.LastOpnum() + 1);
     pending_generic->mutable_block()->set_op_number(log.LastOpnum() + 1);

@@ -40,7 +40,7 @@ private:
 
     // single states
     std::unique_ptr<Timeout> resend_vote_timeout;
-    std::unique_ptr<Timeout> send_generic_timeout;
+    std::unique_ptr<Timeout> close_batch_timeout;
 
     std::unique_ptr<proto::QC> generic_qc, locked_qc;
     std::unique_ptr<proto::GenericMessage> pending_generic;
@@ -90,9 +90,9 @@ private:
     // the `view` concept is omitted in the final "practical" version of
     // hotstuff, but I cannot think of a better name
     void EnterNextView(const proto::QC &justify);
-    void SendGeneric();
+    void CloseBatch();
     void SendVote(opnum_t op_number);
-    void ResetPendingGeneric();
+    void StartNextBatch();
 };
 
 } // namespace hotstuff
