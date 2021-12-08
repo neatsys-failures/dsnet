@@ -16,6 +16,7 @@ def replica_cmd(index):
         '-m', 'pbft',
         '-i', f'{index}',
         '-w', '14',
+        '-b', '10',
     ]
 client_cmd = [
     'timeout', f'{duration + 3}',
@@ -24,7 +25,7 @@ client_cmd = [
     '-m', 'pbft',
     '-h', '11.0.0.101',
     '-u', f'{duration}',
-    '-t', '4',
+    '-t', '20',
 ]
 
 replica_task = [None] * 4

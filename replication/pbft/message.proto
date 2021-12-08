@@ -23,19 +23,21 @@ message Reply {
 // signed_prepare is signed by primary, signed_message is signed by client
 message Preprepare {
     bytes signed_prepare = 1;  // Signed[PBFTMessage::Prepare]
-    bytes signed_message = 2;  // Signed[PBFTMessage::dsnet.Request]
+    repeated bytes signed_message = 2;  // Signed[PBFTMessage::dsnet.Request]
 }
 
 message Prepare {
     uint32 view_number = 1;
     uint64 op_number = 2;
-    bytes digest = 3;
-    int32 replica_id = 4;
+    uint64 batch_size = 3;
+    bytes digest = 4;
+    int32 replica_id = 5;
 }
 
 message Commit {
     uint32 view_number = 1;
     uint64 op_number = 2;
-    bytes digest = 3;
-    int32 replica_id = 4;
+    uint64 batch_size = 3;
+    bytes digest = 4;
+    int32 replica_id = 5;
 }

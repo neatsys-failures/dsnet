@@ -21,11 +21,12 @@ private:
     // consts
     string identifier;
     CTPLOrderedRunner runner;
-    int batch_size;
+    uint64_t batch_size;
 
     // single states
     view_t view_number;
     opnum_t op_number, commit_number;
+    std::unique_ptr<Timeout> close_batch_timeout;
 
     // aggregated states
     struct ClientEntry {
@@ -42,6 +43,8 @@ private:
         prepare_quorum, commit_quorum;
     std::map<opnum_t, Request> request_buffer;
 
+    std::vector<std::string> request_batch; // List[Signed[Request]]
+
     bool IsPrimary() const {
         return configuration.GetLeaderIndex(view_number) == replicaIdx;
     }
@@ -51,7 +54,8 @@ private:
         const std::string &signed_message);
     void HandlePreprepare(
         const TransportAddress &remote, const proto::Prepare &prepare,
-        const std::string &signed_prepare, const Request &request);
+        const std::string &signed_prepare,
+        const std::vector<Request> &requests);
     void HandlePrepare(
         const TransportAddress &remote, const proto::Prepare &prepare,
         const std::string &signed_prepare);
@@ -61,6 +65,7 @@ private:
 
     void InsertPrepare(
         const proto::Prepare &prepare, const std::string &signed_prepare);
+    void CloseBatch();
 };
 
 } // namespace pbft

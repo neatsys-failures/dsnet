@@ -16,6 +16,7 @@ namespace pbft {
 using std::move;
 using std::string;
 using std::unique_ptr;
+using std::vector;
 
 PBFTReplica::PBFTReplica(
     const Configuration &config, int replica_id, const string &identifier,
@@ -25,6 +26,9 @@ PBFTReplica::PBFTReplica(
       view_number(0), op_number(0), commit_number(0), log(true) //
 {
     // setenv("DEBUG", "replica.cc", 1);
+
+    close_batch_timeout = unique_ptr<Timeout>(
+        new Timeout(transport, 10, [this] { CloseBatch(); }));
 }
 
 PBFTReplica::~PBFTReplica() {
@@ -70,27 +74,31 @@ void PBFTReplica::ReceiveMessage(
                     return nullptr;
                 }
 
-                const string &request_buffer =
-                    message.preprepare().signed_message();
-                proto::PBFTMessage request_message;
-                PBMessage pb_request(request_message);
-                SignedAdapter signed_request(pb_request, "");
-                signed_request.Parse(
-                    request_buffer.data(), request_buffer.size());
-                if (!signed_request.IsVerified() ||
-                    !request_message.has_request()) {
-                    RWarning("Failed to verify Preprepare (Request)");
-                    return nullptr;
+                vector<Request> requests;
+                for (uint64_t i = 0; i < prepare_message.batch_size(); i += 1) {
+                    const string &request_buffer =
+                        message.preprepare().signed_message(i);
+                    proto::PBFTMessage request_message;
+                    PBMessage pb_request(request_message);
+                    SignedAdapter signed_request(pb_request, "");
+                    signed_request.Parse(
+                        request_buffer.data(), request_buffer.size());
+                    if (!signed_request.IsVerified() ||
+                        !request_message.has_request()) {
+                        RWarning("Failed to verify Preprepare (Request)");
+                        return nullptr;
+                    }
+                    requests.push_back(request_message.request());
                 }
+
                 return [ //
                            this, escaping_remote = remote.release(), message,
                            prepare_message, prepare_buffer,
-                           request_message //
+                           requests //
                 ]() {
                     auto remote = unique_ptr<TransportAddress>(escaping_remote);
                     HandlePreprepare(
-                        *remote, prepare_message, prepare_buffer,
-                        request_message.request());
+                        *remote, prepare_message, prepare_buffer, requests);
                 };
             }
             case proto::PBFTMessage::SubCase::kPrepare:
@@ -155,35 +163,53 @@ void PBFTReplica::HandleRequest(
     client_entry.request_number = request.clientreqid();
     client_entry.has_reply = false;
 
+    request_batch.push_back(signed_message);
+    if (!close_batch_timeout->Active()) {
+        close_batch_timeout->Start();
+    }
+
+    if (request_batch.size() >= batch_size) {
+        CloseBatch();
+    }
+}
+
+void PBFTReplica::CloseBatch() {
+    close_batch_timeout->Stop();
+
     proto::Prepare prepare;
     prepare.set_view_number(view_number);
-    prepare.set_op_number(op_number);
+    prepare.set_op_number(op_number - request_batch.size() + 1);
+    prepare.set_batch_size(request_batch.size());
     prepare.set_digest(log.LastHash());
     prepare.set_replica_id(replicaIdx);
-    runner.RunEpilogue([this, prepare, signed_message]() mutable {
-        PBMessage pb_prepare(prepare);
-        SignedAdapter signed_prepare(pb_prepare, identifier);
-        string signed_prepare_buffer;
-        signed_prepare_buffer.resize(signed_prepare.SerializedSize());
-        signed_prepare.Serialize(&signed_prepare_buffer.front());
+    runner.RunEpilogue(
+        [this, prepare, request_batch = this->request_batch]() mutable {
+            PBMessage pb_prepare(prepare);
+            SignedAdapter signed_prepare(pb_prepare, identifier);
+            string signed_prepare_buffer;
+            signed_prepare_buffer.resize(signed_prepare.SerializedSize());
+            signed_prepare.Serialize(&signed_prepare_buffer.front());
 
-        proto::PBFTMessage message;
-        auto &preprepare = *message.mutable_preprepare();
-        *preprepare.mutable_signed_prepare() = signed_prepare_buffer;
-        *preprepare.mutable_signed_message() = signed_message;
-        PBMessage pb_layer(message);
-        SignedAdapter signed_layer(pb_layer, identifier, false);
-        RDebug("Send Preprepare: op number = %lu", prepare.op_number());
-        if (!transport->SendMessageToAll(this, signed_layer)) {
-            RWarning("Failed to send Preprepare");
-        }
-    });
+            proto::PBFTMessage message;
+            auto &preprepare = *message.mutable_preprepare();
+            *preprepare.mutable_signed_prepare() = signed_prepare_buffer;
+            for (uint64_t i = 0; i < request_batch.size(); i += 1) {
+                preprepare.add_signed_message(request_batch[i]);
+            }
+            PBMessage pb_layer(message);
+            SignedAdapter signed_layer(pb_layer, identifier, false);
+            RDebug("Send Preprepare: op number = %lu", prepare.op_number());
+            if (!transport->SendMessageToAll(this, signed_layer)) {
+                RWarning("Failed to send Preprepare");
+            }
+        });
+    this->request_batch.clear();
 }
 
 void PBFTReplica::HandlePreprepare(
     const TransportAddress &remote, const proto::Prepare &prepare,
     const std::string &signed_prepare,
-    const Request &request //
+    const vector<Request> &requests //
 ) {
     RDebug("Preprepare: op number = %lu", prepare.op_number());
     if (prepare.view_number() < view_number) {
@@ -198,13 +224,22 @@ void PBFTReplica::HandlePreprepare(
     if (prepare.op_number() <= log.LastOpnum()) {
         return;
     }
+    RDebug(
+        "prepare op number = %lu, log last op number = %lu",
+        prepare.op_number(), log.LastOpnum());
     if (prepare.op_number() != log.LastOpnum() + 1) {
-        RDebug("Buffer request: op number = %lu", prepare.op_number());
-        request_buffer[prepare.op_number()] = request;
+        RDebug(
+            "Buffer request: op number = %lu (+%lu)", prepare.op_number(),
+            prepare.batch_size());
+        for (uint64_t i = 0; i < prepare.batch_size(); i += 1) {
+            request_buffer[prepare.op_number() + i] = requests[i];
+        }
     } else {
-        log.Append(new LogEntry(
-            viewstamp_t(view_number, prepare.op_number()), LOG_STATE_RECEIVED,
-            request));
+        for (uint64_t i = 0; i < prepare.batch_size(); i += 1) {
+            log.Append(new LogEntry(
+                viewstamp_t(view_number, prepare.op_number() + i),
+                LOG_STATE_RECEIVED, requests[i]));
+        }
         auto iter = request_buffer.begin();
         while (iter != request_buffer.end()) {
             RDebug("Next buffered: op number = %lu", iter->first);
@@ -232,8 +267,8 @@ void PBFTReplica::HandlePreprepare(
         PBMessage pb_layer(message);
         SignedAdapter signed_layer(pb_layer, identifier);
         RDebug(
-            "Broadcast Prepare: op number = %lu",
-            message.prepare().op_number());
+            "Broadcast Prepare: op number = %lu (+%lu)",
+            message.prepare().op_number(), message.prepare().batch_size());
         transport->SendMessageToAll(this, signed_layer);
     });
 }
@@ -273,6 +308,7 @@ void PBFTReplica::InsertPrepare(
     auto &commit = *message.mutable_commit();
     commit.set_view_number(view_number);
     commit.set_op_number(prepare.op_number());
+    commit.set_batch_size(prepare.batch_size());
     commit.set_digest(prepare.digest());
     commit.set_replica_id(replicaIdx);
     runner.RunEpilogue([this, message]() mutable {
@@ -333,13 +369,17 @@ void PBFTReplica::HandleCommit(
     }
     // TODO check prepare quorum as well
 
-    RDebug("COMMITTED: op number = %lu", commit.op_number());
+    RDebug(
+        "COMMITTED: op number = %lu (+%lu)", commit.op_number(),
+        commit.batch_size());
 
     if (commit.op_number() > log.LastOpnum()) {
         NOT_IMPLEMENTED(); // state transfer
     }
 
-    log.Find(commit.op_number())->state = LOG_STATE_COMMITTED;
+    for (uint64_t i = 0; i < commit.batch_size(); i += 1) {
+        log.Find(commit.op_number() + i)->state = LOG_STATE_COMMITTED;
+    }
 
     std::vector<Runner::Epilogue> epilogue_list;
     while (auto entry = log.Find(commit_number + 1)) {
