@@ -6,6 +6,7 @@ message MinBFTMessage {
     oneof sub {
         bytes signed_request = 1;  // Signed[dsnet.Request]
         bytes ui_message = 2;  // MinBFT[UIMessage]
+        // state transfer, view change request, etc
     }
 }
 
@@ -14,6 +15,7 @@ message UIMessage {
     oneof sub {
         Prepare prepare = 1;
         Commit commit = 2;
+        // view change, etc
     }
     // convinent field serving as identifier -> replica reverse lookup
     // that should be implemented on signed layer
@@ -28,12 +30,21 @@ message Reply {
 
 message Prepare {
     uint64 view_number = 1;
-    int32 replica_id = 2;
-    bytes signed_request = 3;
+    bytes signed_request = 2;
 }
 
+// if f + 1 replica agree on a `primary_ui` is valid (so Commit is sent), then
+// the Request(s) in corresponding Prepare can be committed, without matching
+// request content.
+// This is because UI mechanism promises that primary cannot send multiple
+// versions of Prepare with same UI. So the receiving f + 1 copies must be 
+// identical.
+// The paper mentioned that a (valid) Commit can be treated as a Commit + 
+// Prepare if the Prepare is not received before. After thinking about it
+// carefully, it does not seem correct to me and I decide not to implement it.
+// I will get back to this later only if I need to implement packet dropping
+// case.
 message Commit {
     uint64 view_number = 1;
-    int32 replica_id = 2;
-    bytes minbft_prepare = 3;  // MinBFT[UIMessage::Prepare]
+    uint64 primary_ui = 2;
 }

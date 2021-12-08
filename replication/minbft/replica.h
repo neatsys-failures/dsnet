@@ -1,4 +1,5 @@
 #pragma once
+#include "common/quorumset.h"
 #include "common/replica.h"
 #include "common/request.pb.h"
 #include "common/runner.h"
@@ -37,14 +38,7 @@ private:
     std::unordered_map<int, std::map<uint64_t, PendingUIMessage>> ui_queue;
     std::unordered_map<int, opnum_t> next_ui;
 
-    // UI -> replica id -> Signed[Request]
-    // the spec did not make a clear definition on what is a "valid" commit
-    // message
-    // following convention, in this implementation "valid" means in addition
-    // to be verified and take a matching view number, the message takes a 
-    // primary UI and request message that match a quorum
-    std::unordered_map<opnum_t, std::unordered_map<int, std::string>>
-        commit_quorum;
+    QuorumSet<opnum_t, proto::UIMessage> commit_quorum;
 
     void HandleUIMessage(
         const TransportAddress &remote, const proto::UIMessage &ui_message,
@@ -52,12 +46,6 @@ private:
     void HandleUIMessageInternal(
         const TransportAddress &remote, const proto::UIMessage &ui_message,
         opnum_t ui, const Request &request);
-    void HandlePrepare(
-        const TransportAddress &remote, const proto::Prepare &prepare,
-        opnum_t ui);
-    void HandleCommit(
-        const TransportAddress &remote, const proto::Commit &commit, opnum_t ui,
-        const Request &request);
 
     view_t view_number;
 };
