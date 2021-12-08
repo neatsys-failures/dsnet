@@ -18,6 +18,7 @@ using std::memcpy;
 using std::move;
 using std::string;
 using std::unique_ptr;
+using std::vector;
 
 DEFINE_LATENCY(replica_total);
 DEFINE_LATENCY(handle_request);
@@ -41,33 +42,64 @@ void SignedUnrepReplica::HandleRequest(
             Latency_EndType(&handle_request, 'r');
             return;
         }
+    } else {
+        ClientTableEntry entry;
+        entry.lastReqId = 0; // make sure reply always get updated later
+        entry.remote = unique_ptr<TransportAddress>(remote.clone());
+        clientTable.emplace(msg.req().clientid(), move(entry));
     }
 
     last_op += 1;
     viewstamp_t v(0, last_op);
     log.Append(new LogEntry(v, LOG_STATE_RECEIVED, msg.req()));
 
-    // auto m = unique_ptr<ToClientMessage>(new ToClientMessage);
-    ToClientMessage m;
-    ReplyMessage *reply = m.mutable_reply();
-    Execute(last_op, msg.req(), *reply);
-    // The protocol defines these as required, even if they're not
-    // meaningful.
-    reply->set_view(0);
-    reply->set_opnum(last_op);
-    *reply->mutable_req() = msg.req();
+    request_batch.push_back(msg.req());
+    if (!close_batch_timeout->Active()) {
+        close_batch_timeout->Start();
+    }
+    if (request_batch.size() >= batch_size) {
+        CloseBatch();
+    }
 
-    UpdateClientTable(msg.req(), m);
-
-    runner.RunEpilogue([this, leaked_remote = remote.clone(), m]() mutable {
-        auto remote = unique_ptr<TransportAddress>(leaked_remote);
-        // auto m = unique_ptr<ToClientMessage>(leaked_m);
-        PBMessage pb_m(m);
-        if (!(transport->SendMessage(
-                this, *remote, SignedAdapter(pb_m, identifier, false))))
-            Warning("Failed to send reply message");
-    });
     // Latency_End(&handle_request);
+}
+
+void SignedUnrepReplica::CloseBatch() {
+    close_batch_timeout->Stop();
+    vector<Runner::Epilogue> epilogue_list;
+    for (int i = 0; i < request_batch.size(); i += 1) {
+
+        ToClientMessage m;
+        ReplyMessage *reply = m.mutable_reply();
+        Execute(last_op, request_batch[i], *reply);
+        // The protocol defines these as required, even if they're not
+        // meaningful.
+        reply->set_view(0);
+        reply->set_opnum(last_op);
+        *reply->mutable_req() = request_batch[i];
+
+        UpdateClientTable(request_batch[i], m);
+
+        epilogue_list.push_back(
+            [ //
+                this,
+                leaked_remote =
+                    clientTable.at(request_batch[i].clientid()).remote->clone(),
+                m //
+        ]() mutable {
+                auto remote = unique_ptr<TransportAddress>(leaked_remote);
+                PBMessage pb_m(m);
+                if (!(transport->SendMessage(
+                        this, *remote, SignedAdapter(pb_m, identifier, false))))
+                    Warning("Failed to send reply message");
+            });
+    }
+    request_batch.clear();
+    runner.RunEpilogue([epilogue_list] {
+        for (Runner::Epilogue epilogue : epilogue_list) {
+            epilogue();
+        }
+    });
 }
 
 void SignedUnrepReplica::HandleUnloggedRequest(
@@ -76,16 +108,16 @@ void SignedUnrepReplica::HandleUnloggedRequest(
 }
 
 SignedUnrepReplica::SignedUnrepReplica(
-    Configuration config, string identifier, int nb_worker_thread,
+    Configuration config, string identifier, int n_worker, int batch_size,
     Transport *transport, AppReplica *app)
     : Replica(config, 0, 0, true, transport, app), log(false),
-      identifier(identifier), runner(nb_worker_thread) {
-#ifdef DSNET_NO_SIGN
-    Notice("Signing is disabled");
-#endif
+      identifier(identifier), runner(n_worker), batch_size(batch_size) {
 
     this->status = STATUS_NORMAL;
     this->last_op = 0;
+
+    close_batch_timeout = unique_ptr<Timeout>(
+        new Timeout(transport, 10, [this] { CloseBatch(); }));
 }
 
 SignedUnrepReplica::~SignedUnrepReplica() {

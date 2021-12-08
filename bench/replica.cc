@@ -242,7 +242,7 @@ int main(int argc, char **argv) {
 
     case PROTO_SIGNEDUNREP:
         replica = new dsnet::signedunrep::SignedUnrepReplica(
-            config, "Steve", n_worker_thread, &transport, nullApp);
+            config, "Steve", n_worker_thread, batchSize, &transport, nullApp);
         break;
 
     case PROTO_TOMBFT:

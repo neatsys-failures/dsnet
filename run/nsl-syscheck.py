@@ -1,37 +1,25 @@
 import sys
 import pathlib
-sys.path.append(pathlib.Path() / 'run')
+
+sys.path.append(pathlib.Path() / "run")
 import common
 import pyrem.task
 
-common.setup('Standard NSL system performance check')
-print('Expect ~360000 <=42')
+common.setup("Standard NSL system performance check")
+print("Expect ~360000 <=42")
 
 duration = 10
-def replica_cmd(index):
-    return [
-        'timeout', f'{duration + 3}',
-        'taskset', '0x1',
-        common.proj_dir + 'bench/replica',
-        '-c', common.proj_dir + 'run/nsl.txt',
-        '-m', 'unreplicated',
-        '-i', f'{index}',
-    ]
-client_cmd = [
-    'timeout', f'{duration + 3}',
-    common.proj_dir  + 'bench/client',
-    '-c', common.proj_dir + 'run/nsl.txt',
-    '-m', 'unreplicated',
-    '-h', '11.0.0.101',
-    '-u', f'{duration}',
-    '-t', '4',
-]
-
-replica_task = common.node[1].run(replica_cmd(0), return_output=True)
+replica_task = common.node[1].run(
+    ["taskset", "0x1"] + common.replica_cmd(0, duration, "unreplicated", 1),
+    return_output=True,
+)
 replica_task.start()
+
 client_task = [
-    common.node[5].run(client_cmd, return_output=True)
-    for _ in range(5)
+    common.node[5].run(
+        common.client_cmd(i, duration, "unreplicated", 4), return_output=True
+    )
+    for i in range(5)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
 
