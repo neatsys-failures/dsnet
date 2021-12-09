@@ -295,7 +295,7 @@ void PBFTReplica::InsertPrepare(
             signed_prepare;
 
     // in paper there are 2f PREPARE that matches PREPREPARE to be collected
-    // here PREPREPARE is implemented by warpping PREPARE, so a quorum cert
+    // here PREPREPARE is implemented by wrapping PREPARE, so a quorum cert
     // should include 2f + 1 PREPARE
     // for now there is no good chance to insert self's PREPARE into quorum
     // cert, so when there are 2f (foreign) PREPARE in the quorum, actually

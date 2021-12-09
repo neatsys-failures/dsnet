@@ -10,7 +10,15 @@ message MinBFTMessage {
     }
 }
 
-// Prepare and Commit include a UI that is in MinBFT[] layer
+// All the message cases that must be transmitted with MinBFT[] wrapped
+// For other protocols like PBFT (wrapped with Signed[]) and TOMBFT (wrapped 
+// with TOMBFT[]), that most messages are wrapped but few others are not, I
+// put a "transparent-ize" flag in the wrapping layer, so receiving side knows
+// whether the layer is useful without looking into inner message case.
+//
+// However here the wrapping layer has side effect, so I have to indirect it
+// with this and the `bytes` variant above.
+// Don't hate me for the lossing performance caused by this.
 message UIMessage {
     oneof sub {
         Prepare prepare = 1;
@@ -18,7 +26,7 @@ message UIMessage {
         // view change, etc
     }
     // convinent field serving as identifier -> replica reverse lookup
-    // that should be implemented on signed layer
+    // that should be implemented in signed layer
     int32 replica_id = 3;
 }
 
@@ -40,11 +48,27 @@ message Prepare {
 // versions of Prepare with same UI. So the receiving f + 1 copies must be 
 // identical.
 // The paper mentioned that a (valid) Commit can be treated as a Commit + 
-// Prepare if the Prepare is not received before. After thinking about it
-// carefully, it does not seem correct to me and I decide not to implement it.
+// Prepare if the Prepare is not received before. In this implementation, Commit
+// message is being trimmed, and the shortcut is not included. There should be
+// no performance lost caused by this as long as there is no dropping Prepare
+// (reordering is acceptable), which could be shortcut-ed but now requires a 
+// real state transfer.
+// The main reason for this modification is to keep prologue as simple (i.e.
+// stateless) as possible. So upon receiving a Commit, worker don't need to
+// decide whether assume corresponding Prepare is ready and simply ignore 
+// Request(s) in Commit, or do a "full" parsing on the Commit which cause a
+// signaficant overhead and almost always unnecessary under perfect network.
+// On the other hand, my understanding of MinBFT is yet-another adaption of
+// VR under BFT system model (other than PBFT), just instead of modify protocol
+// much as PBFT do, MinBFT choose to keep protocol redesigning "Min"imum and
+// modify network by adding trusted components. We can already observe the
+// similiarity to VR with 2f + 1 replication number, non-content-matching 
+// quorum, etc. So it is reasonable to restore a VR-style Commit message as
+// well.
 // I will get back to this later only if I need to implement packet dropping
-// case.
+// case and do evaluation against it.
 message Commit {
     uint64 view_number = 1;
     uint64 primary_ui = 2;
+    int32 replica_id = 3;
 }

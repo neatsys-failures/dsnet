@@ -26,28 +26,29 @@ private:
     // according to spec, all UI message (i.e. message that takes a UI) must be
     // handled in FIFO order
     // replica id -> UI -> message
-    // since MinBFTAdapter layer is not stored here, upon message handling the
-    // verification info is lost
-    // however the spec seems not require receiver side to recover any cert,
-    // it just requires sender side to log everything sent
-    // we made some shit design
-    struct PendingUIMessage {
-        proto::UIMessage ui_message;
-        Request request;
-    };
-    std::unordered_map<int, std::map<uint64_t, PendingUIMessage>> ui_queue;
+    std::unordered_map<int, std::map<uint64_t, Runner::Solo>> ui_queue;
     std::unordered_map<int, opnum_t> next_ui;
 
-    QuorumSet<opnum_t, proto::UIMessage> commit_quorum;
-
-    void HandleUIMessage(
-        const TransportAddress &remote, const proto::UIMessage &ui_message,
-        opnum_t ui, const Request &request);
-    void HandleUIMessageInternal(
-        const TransportAddress &remote, const proto::UIMessage &ui_message,
-        opnum_t ui, const Request &request);
+    QuorumSet<opnum_t, proto::Commit> commit_quorum;
 
     view_t view_number;
+    opnum_t commit_number;
+    Log log;
+    struct ClientEntry {
+        std::unique_ptr<TransportAddress> remote;
+        uint64_t request_number;
+        bool ready;
+        proto::Reply reply;
+    };
+    std::unordered_map<uint64_t, ClientEntry> client_table;
+
+    void HandlePrepare(
+        const TransportAddress &remote, const proto::Prepare &prepare,
+        opnum_t ui, const Request &request);
+    void
+    HandleCommit(const TransportAddress &remote, const proto::Commit &commit);
+
+    void AddCommit(const proto::Commit &commit);
 };
 
 } // namespace minbft
