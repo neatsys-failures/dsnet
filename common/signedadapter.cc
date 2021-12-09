@@ -13,6 +13,9 @@ using std::string;
 
 namespace dsnet {
 
+static const int IDENTIFIER_LENGTH_MAX = 8; // include ending \0
+static const int SIGNED_LAYER_LENGTH = IDENTIFIER_LENGTH_MAX + 64;
+
 static const unsigned char STEVE_SECKEY[] = {
     0x53, 0x74, 0x65, 0x76, 0x65, 0x00, 0x00, 0x00, // print "Steve" as C string
     0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb,
@@ -47,20 +50,21 @@ string SignedAdapter::Type() const {
 }
 
 size_t SignedAdapter::SerializedSize() const {
-    // sign overhead: 64B signature (if not Alex) + 16B identifier
     if (identifier == "Alex") {
-        return inner_message.SerializedSize() + 16;
+        return inner_message.SerializedSize() + IDENTIFIER_LENGTH_MAX;
     }
-    return inner_message.SerializedSize() + 80;
+    return inner_message.SerializedSize() + SIGNED_LAYER_LENGTH;
 }
 
 void SignedAdapter::Parse(const void *buf, size_t size) {
     const char *buf_id = (const char *)buf;
-    const unsigned char *buf_sig = ((const unsigned char *)buf) + 16;
-    const unsigned char *buf_inner = ((const unsigned char *)buf) + 80;
-    size_t inner_size = size - 80;
+    const unsigned char *buf_sig =
+        ((const unsigned char *)buf) + IDENTIFIER_LENGTH_MAX;
+    const unsigned char *buf_inner =
+        ((const unsigned char *)buf) + SIGNED_LAYER_LENGTH;
+    size_t inner_size = size - SIGNED_LAYER_LENGTH;
 
-    if (buf_id[15] != '\0') {
+    if (buf_id[IDENTIFIER_LENGTH_MAX - 1] != '\0') {
         is_verified = false;
         return;
     }
@@ -93,33 +97,6 @@ void SignedAdapter::Parse(const void *buf, size_t size) {
     }
 }
 
-// bool SignedAdapter::DoVerify(const std::string &signature) const {
-//     size_t buf_size = inner_message.SerializedSize();
-//     unsigned char *buf = new unsigned char[inner_message.SerializedSize()];
-//     inner_message.Serialize(buf);
-//     unsigned char *digest = SHA256(buf, buf_size, new unsigned char[32]);
-//     delete[] buf;
-
-//     const secp256k1_pubkey *pubkey;
-//     if (identifier == "Steve") {
-//         pubkey = STEVE_PUBKEY;
-//     } else {
-//         NOT_IMPLEMENTED();
-//     }
-//     secp256k1_context *ctx = PROTO_CTX_VERIFY;
-//     secp256k1_ecdsa_signature sig;
-
-//     bool verified;
-//     if (!secp256k1_ecdsa_signature_parse_compact(
-//             ctx, &sig, (const unsigned char *)signature.data())) {
-//         verified = false;
-//     } else {
-//         verified = secp256k1_ecdsa_verify(ctx, &sig, digest, pubkey) == 1;
-//     }
-//     delete[] digest;
-//     return verified;
-// }
-
 void SignedAdapter::Serialize(void *buf) const {
     if (identifier == "Alex") {
         SerializeNoSign(buf);
@@ -127,13 +104,13 @@ void SignedAdapter::Serialize(void *buf) const {
     }
 
     char *buf_id = (char *)buf;
-    unsigned char *buf_sig = ((unsigned char *)buf) + 16;
-    unsigned char *buf_inner = ((unsigned char *)buf) + 80;
+    unsigned char *buf_sig = ((unsigned char *)buf) + IDENTIFIER_LENGTH_MAX;
+    unsigned char *buf_inner = ((unsigned char *)buf) + SIGNED_LAYER_LENGTH;
     inner_message.Serialize(buf_inner);
     size_t inner_size = inner_message.SerializedSize();
 
-    memset(buf_id, 0, 16);
-    ASSERT(identifier.size() < 16);
+    memset(buf_id, 0, IDENTIFIER_LENGTH_MAX);
+    ASSERT(identifier.size() < IDENTIFIER_LENGTH_MAX);
     identifier.copy(buf_id, identifier.size());
     const unsigned char *seckey;
     if (identifier == "Steve") {
@@ -154,8 +131,9 @@ void SignedAdapter::Serialize(void *buf) const {
 }
 
 void SignedAdapter::ParseNoVerify(const void *buf, size_t size) {
-    const unsigned char *buf_inner = ((const unsigned char *)buf) + 16;
-    size_t inner_size = size - 16;
+    const unsigned char *buf_inner =
+        ((const unsigned char *)buf) + IDENTIFIER_LENGTH_MAX;
+    size_t inner_size = size - IDENTIFIER_LENGTH_MAX;
 
     unsigned char *digest =
         SHA256(buf_inner, inner_size, new unsigned char[32]);
@@ -167,12 +145,12 @@ void SignedAdapter::ParseNoVerify(const void *buf, size_t size) {
 
 void SignedAdapter::SerializeNoSign(void *buf) const {
     char *buf_id = (char *)buf;
-    unsigned char *buf_inner = ((unsigned char *)buf) + 16;
+    unsigned char *buf_inner = ((unsigned char *)buf) + IDENTIFIER_LENGTH_MAX;
     inner_message.Serialize(buf_inner);
     // size_t inner_size = inner_message.SerializedSize();
 
-    memset(buf_id, 0, 16);
-    ASSERT(identifier.size() < 16);
+    memset(buf_id, 0, IDENTIFIER_LENGTH_MAX);
+    ASSERT(identifier.size() < IDENTIFIER_LENGTH_MAX);
     identifier.copy(buf_id, identifier.size());
 }
 

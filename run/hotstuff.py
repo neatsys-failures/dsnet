@@ -11,7 +11,7 @@ common.setup("HotStuff performance")
 duration = 10
 replica_task = [
     common.node[i + 1].run(
-        common.replica_cmd(i, duration + 1, "hotstuff", n_worker=14, batch_size=38),
+        common.replica_cmd(i, duration + 1, "hotstuff", n_worker=14, batch_size=34),
         return_output=True,
     )
     for i in range(4)

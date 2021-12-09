@@ -6,7 +6,7 @@ import common
 import pyrem.task
 
 common.setup("Standard NSL system performance check")
-print("Expect ~360000 <=42")
+print("Expect ~360000 <=42 (recently dropped a little)")
 
 duration = 10
 replica_task = common.node[1].run(
@@ -17,9 +17,9 @@ replica_task.start()
 
 client_task = [
     common.node[5].run(
-        common.client_cmd(i, duration, "unreplicated", 4), return_output=True
+        common.client_cmd(i, duration, "unreplicated", 3), return_output=True
     )
-    for i in range(5)
+    for i in range(6)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
 

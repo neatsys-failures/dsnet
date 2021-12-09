@@ -10,7 +10,7 @@ common.setup("Baseline performance")
 duration = 10
 
 replica_task = common.node[1].run(
-    common.replica_cmd(0, duration, "signedunrep", 4, 1), return_output=True
+    common.replica_cmd(0, duration, "signedunrep", 4), return_output=True
 )
 replica_task.start()
 client_task = [

@@ -9,7 +9,7 @@ common.setup('PBFT performance')
 duration = 10
 replica_task = [
     common.node[i + 1].run(
-        common.replica_cmd(i, duration, "pbft", n_worker=14, batch_size=28),
+        common.replica_cmd(i, duration, "pbft", n_worker=14, batch_size=34),
         return_output=True,
     )
     for i in range(4)
