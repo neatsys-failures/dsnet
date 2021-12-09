@@ -36,8 +36,6 @@ HotStuffReplica::HotStuffReplica( //
             });
         }));
 
-    // 20ms timeout: a QC normally collected within 10ms
-    // using 10ms may crash with unknown reason
     close_batch_timeout =
         unique_ptr<Timeout>(new Timeout(transport, 10, [this]() {
             runner.RunPrologue([this]() {
@@ -54,6 +52,7 @@ HotStuffReplica::HotStuffReplica( //
             if (!IsPrimary()) {
                 SendVote(0);
             } else {
+                close_batch_timeout->Start();  // patch for losing request bug
                 StartNextBatch();
 
                 // patch for reason in HandleVote
@@ -148,6 +147,9 @@ void HotStuffReplica::HandleRequest(
     if (iter != client_table.end()) {
         auto &entry = iter->second;
         if (entry.client_request > request.clientreqid()) {
+            RWarning(
+                "Skip late client request: %u > %lu", entry.client_request,
+                request.clientreqid());
             return;
         }
         if (entry.client_request == request.clientreqid()) {
@@ -156,6 +158,9 @@ void HotStuffReplica::HandleRequest(
                 *reply.mutable_reply() = entry.reply_message;
                 transport->SendMessage(this, remote, PBMessage(reply));
             }
+            RWarning(
+                "Ignore duplicated client request: number = %u, replied = %d",
+                entry.client_request, int(entry.has_reply));
             return;
         }
         entry.client_request = request.clientreqid();
@@ -221,7 +226,7 @@ void HotStuffReplica::HandleVote(
             vote0); // currently backup don't check vote op number
         EnterNextView(qc);
         // should we adaptive batching?
-        CloseBatch();
+        // CloseBatch();
     }
 }
 
@@ -240,10 +245,8 @@ void HotStuffReplica::HandleGeneric(
         "Generic block: op number = %lu (+%u), justify op number = %lu",
         op_offset, generic.block().request_size(),
         generic.block().justify().op_number());
-    // if (op_offset != log.LastOpnum() + 1) {
-    //     NOT_IMPLEMENTED(); // state transfer
-    // }
-    if (op_offset < log.LastOpnum()) {
+    if (op_offset < log.LastOpnum() + 1) {
+        NOT_REACHABLE(); // for debug
         return;
     }
     if (op_offset > log.LastOpnum() + 1) {
@@ -258,6 +261,9 @@ void HotStuffReplica::HandleGeneric(
 
         auto iter = block_buffer.begin();
         while (iter != block_buffer.end()) {
+            if (iter->first < log.LastOpnum() + 1) {
+                NOT_REACHABLE();
+            }
             if (iter->first != log.LastOpnum() + 1) {
                 break;
             }
@@ -341,9 +347,13 @@ void HotStuffReplica::EnterNextView(const proto::QC &justify) {
         }
     }
 
-    if (log.Last() != nullptr && log.Last()->state == LOG_STATE_COMMITTED) {
-        close_batch_timeout->Stop();
-    }
+    // for (opnum_t not_commit = locked_qc->op_number();
+    //      not_commit <= log.LastOpnum(); not_commit += 1) {
+    //     if (log.Find(not_commit)->state != LOG_STATE_NOOP) {
+    //         return;
+    //     }
+    // }
+    // close_batch_timeout->Stop();
 }
 
 void HotStuffReplica::CloseBatch() {
@@ -355,6 +365,7 @@ void HotStuffReplica::CloseBatch() {
     // postpone until they are committed, i.e. after three more Generic
     // (few lines above)
     // close_batch_timeout->Stop();
+    close_batch_timeout->Reset();
 
     if (!generic_qc) {
         RWarning("Generic QC not present, skip send GenericMessage");
@@ -376,7 +387,7 @@ void HotStuffReplica::CloseBatch() {
             "SendGeneric: block op number = %lu (+%u), justify op number = %lu",
             generic->block().op_number(), generic->block().request_size(),
             generic->block().justify().op_number());
-        if (signed_layer.SerializedSize() > 1400) {
+        if (signed_layer.SerializedSize() > 1460) {
             Panic(
                 "Generic message too large: %lu",
                 signed_layer.SerializedSize());

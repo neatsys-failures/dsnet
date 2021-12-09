@@ -138,7 +138,7 @@ def wait_client(client_task):
 def replica_cmd(index, duration, mode, n_worker, batch_size=1):
     return [
         "timeout",
-        f"{duration + 2}",
+        f"{duration + 3}",
         proj_dir + "bench/replica",
         "-c",
         proj_dir + "run/nsl.txt",
@@ -156,7 +156,7 @@ def replica_cmd(index, duration, mode, n_worker, batch_size=1):
 def client_cmd(index, duration, mode, n_thread):
     return [
         "timeout",
-        f"{duration + 1}",
+        f"{duration + 2}",
         proj_dir + "bench/client",
         "-c",
         proj_dir + "run/nsl.txt",

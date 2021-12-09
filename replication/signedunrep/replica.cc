@@ -39,7 +39,7 @@ void SignedUnrepReplica::HandleRequest(
                     this, remote, SignedAdapter(pb_m, "Alex")))) {
                 Warning("Failed to resend reply to client");
             }
-            Latency_EndType(&handle_request, 'r');
+            // Latency_EndType(&handle_request, 'r');
             return;
         }
     } else {
@@ -67,24 +67,26 @@ void SignedUnrepReplica::HandleRequest(
 void SignedUnrepReplica::CloseBatch() {
     close_batch_timeout->Stop();
     vector<Runner::Epilogue> epilogue_list;
-    for (int i = 0; i < request_batch.size(); i += 1) {
+    // for (int i = 0; i < request_batch.size(); i += 1) {
+    auto iter = request_batch.begin();
+    while (iter != request_batch.end()) {
 
         ToClientMessage m;
         ReplyMessage *reply = m.mutable_reply();
-        Execute(last_op, request_batch[i], *reply);
+        Execute(last_op, *iter, *reply);
         // The protocol defines these as required, even if they're not
         // meaningful.
         reply->set_view(0);
         reply->set_opnum(last_op);
-        *reply->mutable_req() = request_batch[i];
+        *reply->mutable_req() = *iter;
 
-        UpdateClientTable(request_batch[i], m);
+        UpdateClientTable(*iter, m);
 
         epilogue_list.push_back(
             [ //
                 this,
                 leaked_remote =
-                    clientTable.at(request_batch[i].clientid()).remote->clone(),
+                    clientTable.at(iter->clientid()).remote->clone(),
                 m //
         ]() mutable {
                 auto remote = unique_ptr<TransportAddress>(leaked_remote);
@@ -93,8 +95,10 @@ void SignedUnrepReplica::CloseBatch() {
                         this, *remote, SignedAdapter(pb_m, identifier, false))))
                     Warning("Failed to send reply message");
             });
+
+        iter = request_batch.erase(iter);
     }
-    request_batch.clear();
+    // request_batch.clear();
     runner.RunEpilogue([epilogue_list] {
         for (Runner::Epilogue epilogue : epilogue_list) {
             epilogue();

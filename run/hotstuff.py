@@ -1,41 +1,30 @@
 import sys
 import pathlib
-sys.path.append(pathlib.Path() / 'run')
+
+sys.path.append(pathlib.Path() / "run")
 import common
 import pyrem.task
 import time
 
-common.setup('HotStuff performance')
+common.setup("HotStuff performance")
 
 duration = 10
-def replica_cmd(index):
-    return [
-        'timeout', f'{duration + 4}',
-        common.proj_dir + 'bench/replica',
-        '-c', common.proj_dir + 'run/nsl.txt',
-        '-m', 'hotstuff',
-        '-i', f'{index}',
-        '-w', '14',
-    ]
-client_cmd = [
-    'timeout', f'{duration + 2}',
-    common.proj_dir  + 'bench/client',
-    '-c', common.proj_dir + 'run/nsl.txt',
-    '-m', 'hotstuff',
-    '-h', '11.0.0.101',
-    '-u', f'{duration}',
-    '-t', '14',
+replica_task = [
+    common.node[i + 1].run(
+        common.replica_cmd(i, duration + 1, "hotstuff", n_worker=14, batch_size=38),
+        return_output=True,
+    )
+    for i in range(4)
 ]
-
-replica_task = [None] * 4
+# start backup before primary to prevent backup missing first QC
 for i in (1, 2, 3, 0):
-    replica_task[i] = common.node[i + 1].run(replica_cmd(i), return_output=True)
     replica_task[i].start()
-time.sleep(0.5)
+
 client_task = [
-    common.node[5].run(client_cmd, return_output=True)
-    for _ in range(10)
+    common.node[5].run(common.client_cmd(i, duration, "hotstuff", 60))
+    for i in range(10)
 ]
+time.sleep(0.8)
 pyrem.task.Parallel(client_task).start(wait=True)
 
 for i in range(4):

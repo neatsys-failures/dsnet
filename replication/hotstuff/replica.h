@@ -17,7 +17,7 @@ class HotStuffEntry : public LogEntry {
 
 private:
     friend class HotStuffReplica;
-    proto::QC justify;
+    // proto::QC justify;
 };
 
 class HotStuffReplica : public Replica {

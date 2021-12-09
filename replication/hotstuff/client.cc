@@ -73,6 +73,7 @@ void HotStuffClient::ReceiveMessage(
     // Notice(
     //     "Request done: client id = %lu, number = %lu", clientid,
     //     pending_request->request_number);
+    resend_request_timeout->Stop();
 
     auto then = pending_request->then;
     auto op = pending_request->op;
