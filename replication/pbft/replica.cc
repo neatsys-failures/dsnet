@@ -29,11 +29,7 @@ PBFTReplica::PBFTReplica(
 
     close_batch_timeout =
         unique_ptr<Timeout>(new Timeout(transport, 10, [this] {
-            runner.RunPrologue([this] {
-                return [this] {
-                    CloseBatch();
-                };
-            });
+            runner.RunPrologue([this] { return [this] { CloseBatch(); }; });
         }));
 }
 
@@ -141,8 +137,7 @@ void PBFTReplica::HandleRequest(
             if (entry.has_reply) {
                 PBMessage pb_reply(entry.reply);
                 auto remote =
-                    unique_ptr<TransportAddress>(transport->LookupAddress(
-                        ReplicaAddress(request.clientaddr())));
+                    unique_ptr<TransportAddress>(entry.remote->clone());
                 transport->SendMessage(this, *remote, pb_reply);
             }
             return;
@@ -196,27 +191,31 @@ void PBFTReplica::CloseBatch() {
     prepare.set_batch_size(request_batch.size());
     prepare.set_digest(log.LastHash());
     prepare.set_replica_id(replicaIdx);
-    runner.RunEpilogue(
-        [this, prepare, request_batch = this->request_batch]() mutable {
-            PBMessage pb_prepare(prepare);
-            SignedAdapter signed_prepare(pb_prepare, identifier);
-            string signed_prepare_buffer;
-            signed_prepare_buffer.resize(signed_prepare.SerializedSize());
-            signed_prepare.Serialize(&signed_prepare_buffer.front());
+    runner.RunEpilogue([this, prepare,
+                        request_batch = this->request_batch]() mutable {
+        PBMessage pb_prepare(prepare);
+        SignedAdapter signed_prepare(pb_prepare, identifier);
+        string signed_prepare_buffer;
+        signed_prepare_buffer.resize(signed_prepare.SerializedSize());
+        signed_prepare.Serialize(&signed_prepare_buffer.front());
 
-            proto::PBFTMessage message;
-            auto &preprepare = *message.mutable_preprepare();
-            *preprepare.mutable_signed_prepare() = signed_prepare_buffer;
-            for (uint64_t i = 0; i < request_batch.size(); i += 1) {
-                preprepare.add_signed_message(request_batch[i]);
-            }
-            PBMessage pb_layer(message);
-            SignedAdapter signed_layer(pb_layer, identifier, false);
-            RDebug("Send Preprepare: op number = %lu", prepare.op_number());
-            if (!transport->SendMessageToAll(this, signed_layer)) {
-                RWarning("Failed to send Preprepare");
-            }
-        });
+        proto::PBFTMessage message;
+        auto &preprepare = *message.mutable_preprepare();
+        *preprepare.mutable_signed_prepare() = signed_prepare_buffer;
+        for (uint64_t i = 0; i < request_batch.size(); i += 1) {
+            preprepare.add_signed_message(request_batch[i]);
+        }
+        PBMessage pb_layer(message);
+        SignedAdapter signed_layer(pb_layer, identifier, false);
+        if (signed_layer.SerializedSize() > 1460) {
+            RPanic(
+                "Mesage too large: size = %lu", signed_layer.SerializedSize());
+        }
+        RDebug("Send Preprepare: op number = %lu", prepare.op_number());
+        if (!transport->SendMessageToAll(this, signed_layer)) {
+            RWarning("Failed to send Preprepare");
+        }
+    });
     this->request_batch.clear();
 }
 

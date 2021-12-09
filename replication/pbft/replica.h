@@ -20,7 +20,7 @@ public:
 private:
     // consts
     string identifier;
-    CTPLOrderedRunner runner;
+    SpinOrderedRunner runner;
     uint64_t batch_size;
 
     // single states
