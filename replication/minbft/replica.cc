@@ -11,6 +11,7 @@ namespace dsnet {
 namespace minbft {
 
 using std::map;
+using std::move;
 using std::string;
 using std::unique_ptr;
 using std::vector;
@@ -55,7 +56,12 @@ void MinBFTReplica::ReceiveMessage(
                     RWarning("Failed to verify request");
                     return nullptr;
                 }
-                // handle
+                return [ //
+                           this, escaping_remote = remote.release(), request,
+                           owned_buffer] {
+                    auto remote = unique_ptr<TransportAddress>(escaping_remote);
+                    HandleRequest(*remote, request, owned_buffer);
+                };
             }
             case proto::MinBFTMessage::SubCase::kUiMessage: {
                 proto::UIMessage ui_message;
@@ -162,6 +168,11 @@ void MinBFTReplica::HandlePrepare(
     log.Append(new LogEntry(
         viewstamp_t(view_number, ui), LOG_STATE_PREPARED, request));
 
+    SendCommit(ui);
+    ConcludeEpilogue();
+}
+
+void MinBFTReplica::SendCommit(opnum_t ui) {
     proto::UIMessage ui_message;
     auto &commit = *ui_message.mutable_commit();
     commit.set_view_number(view_number);
@@ -170,7 +181,7 @@ void MinBFTReplica::HandlePrepare(
     // acquire UI sequetially
     MinBFTAdapter minbft_layer(nullptr, identifier, true);
 
-    runner.RunEpilogue([this, ui_message, minbft_layer]() mutable {
+    epilogue_list.push_back([this, ui_message, minbft_layer]() mutable {
         PBMessage pb_layer(ui_message);
         minbft_layer.SetInner(&pb_layer);
         string ui_buffer;
@@ -180,13 +191,15 @@ void MinBFTReplica::HandlePrepare(
         *m.mutable_ui_message() = ui_buffer;
         transport->SendMessageToAll(this, PBMessage(m));
     });
-
     AddCommit(commit);
+    ConcludeEpilogue();
 }
 
 void MinBFTReplica::HandleCommit(
-    const TransportAddress &remote, const proto::Commit &commit) {
+    const TransportAddress &remote, const proto::Commit &commit //
+) {
     AddCommit(commit);
+    ConcludeEpilogue();
 }
 
 void MinBFTReplica::AddCommit(const proto::Commit &commit) {
@@ -202,7 +215,6 @@ void MinBFTReplica::AddCommit(const proto::Commit &commit) {
     entry->state = LOG_STATE_COMMITTED;
 
     // execution
-    vector<Runner::Epilogue> epilogue_list;
     while (auto *commit_entry = log.Find(commit_number + 1)) {
         if (commit_entry->state == LOG_STATE_NOOP) {
             commit_number += 1;
@@ -246,12 +258,60 @@ void MinBFTReplica::AddCommit(const proto::Commit &commit) {
                 commit_entry->request.clientid());
         }
     }
+}
 
-    runner.RunEpilogue([epilogue_list] {
-        for (Runner::Epilogue epilogue : epilogue_list) {
-            epilogue();
+void MinBFTReplica::HandleRequest(
+    const TransportAddress &remote, const Request &request,
+    const string &signed_request //
+) {
+    auto iter = client_table.find(request.clientid());
+    if (iter != client_table.end()) {
+        if (iter->second.request_number > request.clientreqid()) {
+            return;
         }
+        if (iter->second.request_number == request.clientreqid()) {
+            if (iter->second.ready) {
+                proto::Reply reply(iter->second.reply);
+                PBMessage pb_reply(reply);
+                SignedAdapter signed_reply(pb_reply, identifier, false);
+                transport->SendMessage(this, remote, signed_reply);
+            }
+            return;
+        }
+        iter->second.request_number = request.clientreqid();
+        iter->second.ready = false;
+    } else {
+        ClientEntry entry;
+        entry.remote = unique_ptr<TransportAddress>(remote.clone());
+        entry.request_number = request.clientreqid();
+        entry.ready = false;
+        client_table.emplace(request.clientid(), move(entry));
+    }
+
+    if (configuration.GetLeaderIndex(view_number) != replicaIdx) {
+        return;
+    }
+
+    log.Append(new LogEntry(
+        viewstamp_t(view_number, log.LastOpnum() + 1), LOG_STATE_PREPARED,
+        request));
+    proto::UIMessage ui_message;
+    auto &prepare = *ui_message.mutable_prepare();
+    prepare.set_view_number(view_number);
+    prepare.set_signed_request(signed_request);
+    MinBFTAdapter minbft_layer(nullptr, identifier, true);
+    epilogue_list.push_back([this, ui_message, minbft_layer]() mutable {
+        PBMessage pb_layer(ui_message);
+        minbft_layer.SetInner(&pb_layer);
+        string buffer;
+        buffer.resize(minbft_layer.SerializedSize());
+        minbft_layer.Serialize(&buffer.front());
+        proto::MinBFTMessage m;
+        *m.mutable_ui_message() = buffer;
+        transport->SendMessageToAll(this, PBMessage(m));
     });
+    SendCommit(minbft_layer.GetUI());
+    ConcludeEpilogue();
 }
 
 } // namespace minbft

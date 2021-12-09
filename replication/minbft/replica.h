@@ -41,14 +41,27 @@ private:
         proto::Reply reply;
     };
     std::unordered_map<uint64_t, ClientEntry> client_table;
+    std::vector<Runner::Epilogue> epilogue_list;
+    void ConcludeEpilogue() {
+        runner.RunEpilogue([epilogue_list = this->epilogue_list] {
+            for (Runner::Epilogue epilogue : epilogue_list) {
+                epilogue();
+            }
+        });
+        epilogue_list.clear();
+    }
 
     void HandlePrepare(
         const TransportAddress &remote, const proto::Prepare &prepare,
         opnum_t ui, const Request &request);
     void
     HandleCommit(const TransportAddress &remote, const proto::Commit &commit);
+    void HandleRequest(
+        const TransportAddress &remote, const Request &request,
+        const std::string &signed_request);
 
     void AddCommit(const proto::Commit &commit);
+    void SendCommit(opnum_t ui);
 };
 
 } // namespace minbft
