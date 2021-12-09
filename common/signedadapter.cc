@@ -78,6 +78,7 @@ void SignedAdapter::Parse(const void *buf, size_t size) {
     if (identifier == "Steve") {
         pubkey = STEVE_PUBKEY;
     } else {
+        // Panic("identifier: %s", identifier.c_str());
         NOT_IMPLEMENTED();
     }
     secp256k1_context *ctx = PROTO_CTX_VERIFY;

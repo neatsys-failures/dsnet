@@ -37,6 +37,7 @@
 #include "lib/udptransport.h"
 #include "replication/fastpaxos/client.h"
 #include "replication/hotstuff/client.h"
+#include "replication/minbft/client.h"
 #include "replication/nopaxos/client.h"
 #include "replication/pbft/client.h"
 #include "replication/signedunrep/client.h"
@@ -85,7 +86,8 @@ int main(int argc, char **argv) {
         PROTO_NOPAXOS,
         PROTO_TOMBFT,
         PROTO_HOTSTUFF,
-        PROTO_PBFT
+        PROTO_PBFT,
+        PROTO_MINBFT
     } proto = PROTO_UNKNOWN;
 
     enum { TRANSPORT_UDP, TRANSPORT_DPDK } transport_type = TRANSPORT_UDP;
@@ -149,6 +151,8 @@ int main(int argc, char **argv) {
                 proto = PROTO_HOTSTUFF;
             } else if (strcasecmp(optarg, "pbft") == 0) {
                 proto = PROTO_PBFT;
+            } else if (strcasecmp(optarg, "minbft") == 0) {
+                proto = PROTO_MINBFT;
             } else {
                 fprintf(stderr, "unknown mode '%s'\n", optarg);
                 Usage(argv[0]);
@@ -285,6 +289,10 @@ int main(int argc, char **argv) {
                 new dsnet::pbft::PBFTClient(config, addr, "Alex", transport);
             break;
 
+        case PROTO_MINBFT:
+            client = new dsnet::minbft::MinBFTClient(
+                config, addr, "Alex", transport);
+            break;
         default:
             NOT_REACHABLE();
         }

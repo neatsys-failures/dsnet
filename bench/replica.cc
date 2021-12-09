@@ -33,6 +33,7 @@
 #include "lib/udptransport.h"
 #include "replication/fastpaxos/replica.h"
 #include "replication/hotstuff/replica.h"
+#include "replication/minbft/replica.h"
 #include "replication/nopaxos/replica.h"
 #include "replication/pbft/replica.h"
 #include "replication/signedunrep/replica.h"
@@ -82,7 +83,8 @@ int main(int argc, char **argv) {
         PROTO_NOPAXOS,
         PROTO_TOMBFT,
         PROTO_HOTSTUFF,
-        PROTO_PBFT
+        PROTO_PBFT,
+        PROTO_MINBFT
     } proto = PROTO_UNKNOWN;
 
     // Parse arguments
@@ -143,6 +145,8 @@ int main(int argc, char **argv) {
                 proto = PROTO_HOTSTUFF;
             } else if (strcasecmp(optarg, "pbft") == 0) {
                 proto = PROTO_PBFT;
+            } else if (strcasecmp(optarg, "minbft") == 0) {
+                proto = PROTO_MINBFT;
             } else {
                 fprintf(stderr, "unknown mode '%s'\n", optarg);
                 Usage(argv[0]);
@@ -258,6 +262,12 @@ int main(int argc, char **argv) {
 
     case PROTO_PBFT:
         replica = new dsnet::pbft::PBFTReplica(
+            config, index, "Steve", n_worker_thread, batchSize, &transport,
+            nullApp);
+        break;
+
+    case PROTO_MINBFT:
+        replica = new dsnet::minbft::MinBFTReplica(
             config, index, "Steve", n_worker_thread, batchSize, &transport,
             nullApp);
         break;

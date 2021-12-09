@@ -21,7 +21,7 @@ MinBFTReplica::MinBFTReplica(
     int n_worker, int batch_size, Transport *transport, AppReplica *app)
     : Replica(config, 0, replica_id, true, transport, app),
       identifier(identifier), runner(n_worker), commit_quorum(config.f + 1),
-      commit_number(0), log(false) //
+      view_number(0), commit_number(0), log(false) //
 {
     for (int i = 0; i < config.n; i += 1) {
         ui_queue[i] = map<opnum_t, Runner::Solo>();
@@ -58,9 +58,9 @@ void MinBFTReplica::ReceiveMessage(
                 }
                 return [ //
                            this, escaping_remote = remote.release(), request,
-                           owned_buffer] {
+                           m] {
                     auto remote = unique_ptr<TransportAddress>(escaping_remote);
-                    HandleRequest(*remote, request, owned_buffer);
+                    HandleRequest(*remote, request, m.signed_request());
                 };
             }
             case proto::MinBFTMessage::SubCase::kUiMessage: {
@@ -120,6 +120,9 @@ void MinBFTReplica::ReceiveMessage(
                         // TODO get this from MinBFT layer instead of protobuf
                         remote_id = ui_message.replica_id() //
                 ] {
+                        RDebug(
+                            "Receive UIMessage: replica id = %d, ui = %lu",
+                            remote_id, ui);
                         if (ui != next_ui[remote_id]) {
                             ui_queue[remote_id][ui] = solo;
                             return;
@@ -150,6 +153,7 @@ void MinBFTReplica::HandlePrepare(
     const TransportAddress &remote, const proto::Prepare &prepare, opnum_t ui,
     const Request &request //
 ) {
+    RDebug("Handle Prepare: ui = %lu", ui);
     if (prepare.view_number() < view_number) {
         return;
     }
@@ -174,6 +178,7 @@ void MinBFTReplica::HandlePrepare(
 
 void MinBFTReplica::SendCommit(opnum_t ui) {
     proto::UIMessage ui_message;
+    ui_message.set_replica_id(replicaIdx);
     auto &commit = *ui_message.mutable_commit();
     commit.set_view_number(view_number);
     commit.set_replica_id(replicaIdx);
@@ -192,7 +197,6 @@ void MinBFTReplica::SendCommit(opnum_t ui) {
         transport->SendMessageToAll(this, PBMessage(m));
     });
     AddCommit(commit);
-    ConcludeEpilogue();
 }
 
 void MinBFTReplica::HandleCommit(
@@ -292,14 +296,21 @@ void MinBFTReplica::HandleRequest(
         return;
     }
 
+    MinBFTAdapter minbft_layer(nullptr, identifier, true);
+    while (log.LastOpnum() + 1 != minbft_layer.GetUI()) {
+        log.Append(new LogEntry(
+            viewstamp_t(view_number, log.LastOpnum() + 1), LOG_STATE_NOOP,
+            Request()));
+    }
     log.Append(new LogEntry(
-        viewstamp_t(view_number, log.LastOpnum() + 1), LOG_STATE_PREPARED,
+        viewstamp_t(view_number, minbft_layer.GetUI()), LOG_STATE_PREPARED,
         request));
+
     proto::UIMessage ui_message;
+    ui_message.set_replica_id(replicaIdx);
     auto &prepare = *ui_message.mutable_prepare();
     prepare.set_view_number(view_number);
     prepare.set_signed_request(signed_request);
-    MinBFTAdapter minbft_layer(nullptr, identifier, true);
     epilogue_list.push_back([this, ui_message, minbft_layer]() mutable {
         PBMessage pb_layer(ui_message);
         minbft_layer.SetInner(&pb_layer);

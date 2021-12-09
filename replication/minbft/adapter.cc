@@ -7,7 +7,7 @@ opnum_t MinBFTPlainAdapter::s_ui = 0;
 
 MinBFTAdapter::MinBFTAdapter(
     Message *inner, const std::string &identifier, bool assign_ui)
-    : plain_layer(inner, assign_ui), signed_layer(plain_layer, identifier) {}
+    : plain_layer(inner, assign_ui), identifier(identifier) {}
 
 } // namespace minbft
 } // namespace dsnet

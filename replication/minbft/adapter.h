@@ -55,8 +55,8 @@ public:
     void SetInner(Message *inner) { plain_layer.inner = inner; }
 
     MinBFTAdapter *Clone() const override {
-        MinBFTAdapter *cloned = new MinBFTAdapter(
-            plain_layer.inner, signed_layer.Identifier(), false);
+        MinBFTAdapter *cloned =
+            new MinBFTAdapter(plain_layer.inner, identifier, false);
         cloned->plain_layer.ui = plain_layer.ui;
         return cloned;
     }
@@ -65,24 +65,29 @@ public:
     }
     // most part of MinBFTAdapter is implemented by composing SignedAdapter
     size_t SerializedSize() const override {
-        return signed_layer.SerializedSize();
+        return SignedAdapter(plain_layer, identifier).SerializedSize();
     }
 
     void Parse(const void *buf, size_t len) override {
+        SignedAdapter signed_layer(plain_layer, identifier);
         signed_layer.Parse(buf, len);
+        is_verified = signed_layer.IsVerified();
     }
     // only vaid when `assign_ui` == true
-    void Serialize(void *buf) const override { signed_layer.Serialize(buf); }
+    void Serialize(void *buf) const override {
+        SignedAdapter(plain_layer, identifier).Serialize(buf);
+    }
 
     // for sender, must call when `assign_ui` == true
     // for receiver, must call after `Parse`
     opnum_t GetUI() const { return plain_layer.ui; }
     // only valid after call `Parse`
-    bool IsVerified() const { return signed_layer.IsVerified(); }
+    bool IsVerified() const { return is_verified; }
 
 private:
     mutable MinBFTPlainAdapter plain_layer;
-    mutable SignedAdapter signed_layer;
+    const std::string identifier;
+    bool is_verified;
 };
 
 } // namespace minbft
