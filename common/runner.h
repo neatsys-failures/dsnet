@@ -107,7 +107,6 @@ public:
 // caller if system overloaded. If client not slow down requesting soon
 // enough, it could cause severe packet dropping
 class SpinOrderedRunner : public Runner {
-    int n_worker;
     static const int N_WORKER_MAX = 128;
     std::thread workers[N_WORKER_MAX];
 
@@ -124,11 +123,12 @@ class SpinOrderedRunner : public Runner {
         while (!slot_ready[next_prologue]) {
         }
     }
+    virtual int n_slot() const { return n_worker * 4; }
 
     void RunWorkerThread(int id);
 
 protected:
-    int n_slot() const { return n_worker * 4; }
+    int n_worker;
     std::atomic<bool> shutdown;
     std::atomic<bool> slot_ready[N_SLOT_MAX];
     int next_prologue;
@@ -142,6 +142,7 @@ public:
 };
 
 class SpinRunner : public SpinOrderedRunner {
+    int n_slot() const override { return n_worker; }
     void SoloSpin(int slot_id) override {
         while (next_solo != slot_id && !shutdown) {
             int expect = -1;

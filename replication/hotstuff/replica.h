@@ -33,7 +33,7 @@ public:
 private:
     // consts
     std::string identifier;
-    CTPLRunner runner;
+    SpinRunner runner;
     int batch_size;
     using SignedVote = std::string;
     SignedVote vote0;
