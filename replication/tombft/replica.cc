@@ -22,18 +22,35 @@ TOMBFTReplica::TOMBFTReplica(
     int worker_thread_count, Transport *transport, AppReplica *app)
     : Replica(config, 0, replica_index, true, transport, app),
       runner(worker_thread_count), identifier(identifier),
-      last_message_number(0), last_executed(0), session_number(0), log(false) {
+      last_message_number(0), last_executed(0), session_number(0), log(false) //
+{
     transport->ListenOnMulticast(this, config);
-    // RDebug("System start");
 }
 
 void TOMBFTReplica::ReceiveMessage(
-    const TransportAddress &remote, void *buf, size_t size) {
-    // RDebug("Get packet");
+    const TransportAddress &remote, void *buf, size_t size //
+) {
+    // smartNIC simulator
+    static string nic_message;
+    if (nic_message.data() == buf) { // this is a nic message
+        nic_message.clear(); // to select next message as next nic message
+    } else if (nic_message.empty()) {
+        nic_message = string((const char *)buf, size);
+        char sig[] = "smartNIC";
+        nic_message.replace(16, sizeof(sig), sig);
+        // normally delay time is shorter than 1ms, but resolution limits
+        transport->Timer(1, [this, escaping_remote = remote.clone()]() mutable {
+            auto remote = unique_ptr<TransportAddress>(escaping_remote);
+            ReceiveMessage(*remote, &nic_message.front(), nic_message.size());
+        });
+    }
+
     runner.RunPrologue(
-        [this, escaping_remote = remote.clone(),
-         owned_buffer = string((const char *)buf, size),
-         escaping_message = new proto::Message]() -> Runner::Solo {
+        [ //
+            this, escaping_remote = remote.clone(),
+            owned_buffer = string((const char *)buf, size),
+            escaping_message = new proto::Message //
+    ]() -> Runner::Solo {
             auto message = unique_ptr<proto::Message>(escaping_message);
             PBAdapter pb(*message);
             auto security =
