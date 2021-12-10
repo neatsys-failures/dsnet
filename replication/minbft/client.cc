@@ -16,6 +16,7 @@ MinBFTClient::MinBFTClient(
 {
     resend_request_timeout =
         unique_ptr<Timeout>(new Timeout(transport, 1000, [this]() {
+            // NOT_REACHABLE();  // debug
             Warning(
                 "Resend request: request number = %lu",
                 pending_request->request_number);

@@ -95,7 +95,7 @@ void MinBFTReplica::ReceiveMessage(
                             unique_ptr<TransportAddress>(escaping_remote);
                         HandlePrepare(
                             *remote, ui_message.prepare(), ui, request);
-                        ConcludeEpilogue();
+                        // ConcludeEpilogue();
                     };
                     break;
                 }
@@ -106,7 +106,7 @@ void MinBFTReplica::ReceiveMessage(
                         auto remote =
                             unique_ptr<TransportAddress>(escaping_remote);
                         HandleCommit(*remote, ui_message.commit());
-                        ConcludeEpilogue();
+                        // ConcludeEpilogue();
                     };
                     break;
                 }
@@ -142,6 +142,7 @@ void MinBFTReplica::ReceiveMessage(
                             iter->second();
                             iter = ui_queue[remote_id].erase(iter);
                         }
+                        ConcludeEpilogue();
                     };
             }
             default:
@@ -187,6 +188,7 @@ void MinBFTReplica::SendCommit(opnum_t ui) {
     commit.set_primary_ui(ui);
     // acquire UI sequetially
     MinBFTAdapter minbft_layer(nullptr, identifier, true);
+    RDebug("Allocate UI = %lu", minbft_layer.GetUI());
 
     epilogue_list.push_back([this, ui_message, minbft_layer]() mutable {
         PBMessage pb_layer(ui_message);
@@ -196,6 +198,7 @@ void MinBFTReplica::SendCommit(opnum_t ui) {
         minbft_layer.Serialize(&ui_buffer.front());
         proto::MinBFTMessage m;
         *m.mutable_ui_message() = ui_buffer;
+        RDebug("Send Commit: ui = %lu", minbft_layer.GetUI());
         transport->SendMessageToAll(this, PBMessage(m));
     });
     AddCommit(commit);
