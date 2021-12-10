@@ -22,29 +22,17 @@ TOMBFTReplica::TOMBFTReplica(
     int worker_thread_count, Transport *transport, AppReplica *app)
     : Replica(config, 0, replica_index, true, transport, app),
       runner(worker_thread_count), identifier(identifier),
-      last_message_number(0), last_executed(0), session_number(0), log(false) //
+      start_number((uint32_t)-1), last_executed(0), session_number(0),
+      log(false) //
 {
     transport->ListenOnMulticast(this, config);
 }
 
+static int n_message = 0, n_signed_message = 0;
+
 void TOMBFTReplica::ReceiveMessage(
     const TransportAddress &remote, void *buf, size_t size //
 ) {
-    // smartNIC simulator
-    static string nic_message;
-    if (nic_message.data() == buf) { // this is a nic message
-        nic_message.clear(); // to select next message as next nic message
-    } else if (nic_message.empty()) {
-        nic_message = string((const char *)buf, size);
-        char sig[] = "smartNIC";
-        nic_message.replace(16, sizeof(sig), sig);
-        // normally delay time is shorter than 1ms, but resolution limits
-        transport->Timer(1, [this, escaping_remote = remote.clone()]() mutable {
-            auto remote = unique_ptr<TransportAddress>(escaping_remote);
-            ReceiveMessage(*remote, &nic_message.front(), nic_message.size());
-        });
-    }
-
     runner.RunPrologue(
         [ //
             this, escaping_remote = remote.clone(),
@@ -56,10 +44,9 @@ void TOMBFTReplica::ReceiveMessage(
             auto security =
                 unique_ptr<SignedAdapter>(new SignedAdapter(pb, ""));
             auto tom =
-                unique_ptr<TOMBFTAdapter>(new TOMBFTAdapter(*security, false));
+                unique_ptr<TOMBFTAdapter>(new TOMBFTAdapter(*security, true));
             tom->Parse(owned_buffer.data(), owned_buffer.size());
             if (!tom->IsVerified() || !security->IsVerified()) {
-                //
                 NOT_IMPLEMENTED();
                 return nullptr;
             }
@@ -80,6 +67,29 @@ void TOMBFTReplica::ReceiveMessage(
 
             return nullptr;
         });
+
+    // smartNIC simulator
+    static string nic_message;
+    n_message += 1;
+    if (nic_message.data() == buf) { // this is a nic message
+        n_signed_message += 1;
+        nic_message.clear(); // to select next message as next nic message
+    } else if (nic_message.empty()) {
+        nic_message = string((const char *)buf, size);
+        char sig[] = "smartNIC";
+        nic_message.replace(16, sizeof(sig) - 1, sig);
+        // normally delay time is shorter than 1ms, but resolution limits
+        transport->Timer(1, [this, escaping_remote = remote.clone()]() mutable {
+            auto remote = unique_ptr<TransportAddress>(escaping_remote);
+            ReceiveMessage(*remote, &nic_message.front(), nic_message.size());
+        });
+    }
+}
+
+TOMBFTReplica::~TOMBFTReplica() {
+    RNotice(
+        "average batch size = %d",
+        (n_message - n_signed_message) / (n_signed_message + 1));
 }
 
 void TOMBFTReplica::HandleRequest(
@@ -94,8 +104,8 @@ void TOMBFTReplica::HandleRequest(
     if (session_number == 0) {
         session_number = meta.SessionNumber();
     }
-    if (last_message_number == 0) {
-        last_message_number = meta.MessageNumber() - 1;
+    if (start_number > meta.MessageNumber()) {
+        start_number = meta.MessageNumber();
     }
 
     if (session_number != meta.SessionNumber()) {
@@ -106,9 +116,17 @@ void TOMBFTReplica::HandleRequest(
 
     if (meta.IsSigned()) {
         auto iter = tom_buffer.begin();
-        while (                                                             //
-            iter != tom_buffer.end() && iter->first <= meta.MessageNumber() //
-        ) {
+        while (iter != tom_buffer.end()) {
+            if (iter->first > meta.MessageNumber()) {
+                break;
+            }
+            // RNotice("executing %d", iter->first);
+            if (iter->first != start_number + last_executed) {
+                RPanic(
+                    "Gap: %lu (+%lu)", start_number + last_executed,
+                    iter->first - (start_number + last_executed));
+                NOT_IMPLEMENTED(); // state transfer
+            }
             ExecuteOne(iter->second);
             iter = tom_buffer.erase(iter);
         }
@@ -116,25 +134,8 @@ void TOMBFTReplica::HandleRequest(
     }
 
     // TODO save all message (with duplicated message number) for BFT
-    if (meta.MessageNumber() <= last_message_number) {
-        RWarning(
-            "Ignore duplicated request: message number = %u",
-            meta.MessageNumber());
-        return;
-    }
-    // althrough we are buffering, still require messages arrive with strict
-    // ordering
-    // because they ought to do so
-    if (meta.MessageNumber() > last_message_number + 1) {
-        RWarning(
-            "Gap detected: %u..<%u", last_message_number + 1,
-            meta.MessageNumber());
-        NOT_IMPLEMENTED();
-        return;
-    }
-
-    last_message_number += 1;
-    tom_buffer[last_message_number] = message;
+    // RNotice("buffering %d", meta.MessageNumber());
+    tom_buffer[meta.MessageNumber()] = message;
 }
 
 struct TOMEntry : public LogEntry {

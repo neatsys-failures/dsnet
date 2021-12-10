@@ -51,7 +51,7 @@ void TOMBFTClient::SendRequest() {
     reqMsg->set_op(pendingRequest->request);
     reqMsg->set_clientid(clientid);
     reqMsg->set_clientreqid(lastReqId);
-    reqMsg->set_clientaddr(node_addr_->Serialize());
+    // reqMsg->set_clientaddr(node_addr_->Serialize());
 
     PBMessage pb_m(m);
     SignedAdapter signed_layer(pb_m, identifier);
@@ -112,7 +112,7 @@ void TOMBFTClient::HandleReply(
     }
     Debug("Packet count = %d", count);
     if (count < 2 * config.f + 1) {
-    // if (count < config.n) {
+        // if (count < config.n) {
         return;
     }
 

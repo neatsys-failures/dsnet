@@ -15,15 +15,16 @@ public:
         const Configuration &config, int replica_index,
         const string &identifier, int worker_thread_count, Transport *transport,
         AppReplica *app);
+    ~TOMBFTReplica();
 
     void ReceiveMessage(
         const TransportAddress &remote, void *buf, size_t size) override;
 
 private:
-    SpinOrderedRunner runner;
+    CTPLRunner runner;
     const string identifier;
 
-    uint32_t last_message_number;
+    uint32_t start_number;
     uint64_t last_executed;
     uint8_t session_number;
 

@@ -109,7 +109,7 @@ void TOMBFTAdapter::Parse(const void *buf, size_t size) {
         return;
     }
 
-    bool is_signed = false;
+    is_signed = false;
     for (unsigned i = 0; i < sizeof(layout->multicast.signature); i += 1) {
         if (layout->multicast.signature[i] != 0) {
             is_signed = true;

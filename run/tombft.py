@@ -1,38 +1,24 @@
 import sys
 import pathlib
-sys.path.append(pathlib.Path() / 'run')
+
+sys.path.append(pathlib.Path() / "run")
 import common
 import pyrem.task
 
-common.setup('TOMBFT performance')
+common.setup("TOMBFT performance")
 
 duration = 10
-def replica_cmd(index):
-    return [
-        'timeout', f'{duration + 5}',
-        common.proj_dir + 'bench/replica',
-        '-c', common.proj_dir + 'run/nsl.txt',
-        '-m', 'tombft',
-        '-i', f'{index}',
-        '-w', '14',
-    ]
-client_cmd = [
-    'timeout', f'{duration + 3}',
-    common.proj_dir  + 'bench/client',
-    '-c', common.proj_dir + 'run/nsl.txt',
-    '-m', 'tombft',
-    '-h', '11.0.0.101',
-    '-u', f'{duration}',
-    '-t', '6',
+replica_task = [
+    common.node[i + 1].run(
+        common.replica_cmd(i, duration, "tombft", n_worker=4), return_output=True
+    )
+    for i in range(4)
 ]
-
-replica_task = [None] * 4
 for i in range(4):
-    replica_task[i] = common.node[i + 1].run(replica_cmd(i), kill_remote=False, return_output=True)
     replica_task[i].start()
+
 client_task = [
-    common.node[5].run(client_cmd, return_output=True)
-    for _ in range(16)
+    common.node[5].run(common.client_cmd(i, duration, "tombft", 20)) for i in range(10)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
 
