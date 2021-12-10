@@ -191,8 +191,7 @@ void SpinOrderedRunner::RunPrologue(Prologue prologue) {
     // it is unnecessary to check for `shutdown` during this spinning
     // since if driver thread is spinning here, no one will set `shutdown`
     // anyway
-    while (!slot_ready[next_prologue]) {
-    }
+    DriverSpin();
     Latency_End(&driver_spin);
 
     prologue_slots[next_prologue] = prologue;

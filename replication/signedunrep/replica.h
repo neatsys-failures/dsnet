@@ -39,7 +39,7 @@ private:
 
     const std::string identifier;
     SpinOrderedRunner runner;
-    int batch_size;
+    size_t batch_size;
     std::vector<Request> request_batch;
 
     std::unique_ptr<Timeout> close_batch_timeout;

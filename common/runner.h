@@ -111,24 +111,28 @@ class SpinOrderedRunner : public Runner {
     static const int N_WORKER_MAX = 128;
     std::thread workers[N_WORKER_MAX];
 
-    int n_slot() const { return n_worker * 4; }
     static const int N_SLOT_MAX = 1000;
     Prologue prologue_slots[N_SLOT_MAX];
     Epilogue epilogue_slots[N_SLOT_MAX];
-    std::atomic<bool> slot_ready[N_SLOT_MAX];
 
-    int next_prologue;
-    std::atomic<int> next_solo;
     virtual void SoloSpin(int slot_id) {
         while (next_solo != slot_id && !shutdown) {
         }
     }
     virtual void SoloDone() { next_solo = (next_solo + 1) % n_slot(); }
+    virtual void DriverSpin() {
+        while (!slot_ready[next_prologue]) {
+        }
+    }
 
     void RunWorkerThread(int id);
 
 protected:
+    int n_slot() const { return n_worker * 4; }
     std::atomic<bool> shutdown;
+    std::atomic<bool> slot_ready[N_SLOT_MAX];
+    int next_prologue;
+    std::atomic<int> next_solo;
 
 public:
     SpinOrderedRunner(int n_worker);
@@ -138,17 +142,21 @@ public:
 };
 
 class SpinRunner : public SpinOrderedRunner {
-    std::atomic<int> slot_mutex;
     void SoloSpin(int slot_id) override {
-        while (slot_mutex != slot_id && !shutdown) {
+        while (next_solo != slot_id && !shutdown) {
             int expect = -1;
-            slot_mutex.compare_exchange_weak(expect, slot_id);
+            next_solo.compare_exchange_weak(expect, slot_id);
         }
     }
-    void SoloDone() override { slot_mutex = -1; }
+    void SoloDone() override { next_solo = -1; }
+    void DriverSpin() override {
+        while (!slot_ready[next_prologue]) {
+            next_prologue = (next_prologue + 1) % n_slot();
+        }
+    }
 
 public:
-    SpinRunner(int n_worker) : SpinOrderedRunner(n_worker), slot_mutex(-1) {}
+    SpinRunner(int n_worker) : SpinOrderedRunner(n_worker) { next_solo = -1; }
 };
 
 } // namespace dsnet
