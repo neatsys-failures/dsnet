@@ -61,6 +61,7 @@ void MinBFTReplica::ReceiveMessage(
                            m] {
                     auto remote = unique_ptr<TransportAddress>(escaping_remote);
                     HandleRequest(*remote, request, m.signed_request());
+                    ConcludeEpilogue();
                 };
             }
             case proto::MinBFTMessage::SubCase::kUiMessage: {
@@ -94,6 +95,7 @@ void MinBFTReplica::ReceiveMessage(
                             unique_ptr<TransportAddress>(escaping_remote);
                         HandlePrepare(
                             *remote, ui_message.prepare(), ui, request);
+                        ConcludeEpilogue();
                     };
                     break;
                 }
@@ -104,6 +106,7 @@ void MinBFTReplica::ReceiveMessage(
                         auto remote =
                             unique_ptr<TransportAddress>(escaping_remote);
                         HandleCommit(*remote, ui_message.commit());
+                        ConcludeEpilogue();
                     };
                     break;
                 }
@@ -173,7 +176,6 @@ void MinBFTReplica::HandlePrepare(
         viewstamp_t(view_number, ui), LOG_STATE_PREPARED, request));
 
     SendCommit(ui);
-    ConcludeEpilogue();
 }
 
 void MinBFTReplica::SendCommit(opnum_t ui) {
@@ -202,8 +204,11 @@ void MinBFTReplica::SendCommit(opnum_t ui) {
 void MinBFTReplica::HandleCommit(
     const TransportAddress &remote, const proto::Commit &commit //
 ) {
+    if (commit.primary_ui() <= commit_number) {
+        // TODO resend for slow replica
+        return;
+    }
     AddCommit(commit);
-    ConcludeEpilogue();
 }
 
 void MinBFTReplica::AddCommit(const proto::Commit &commit) {
@@ -322,7 +327,6 @@ void MinBFTReplica::HandleRequest(
         transport->SendMessageToAll(this, PBMessage(m));
     });
     SendCommit(minbft_layer.GetUI());
-    ConcludeEpilogue();
 }
 
 } // namespace minbft

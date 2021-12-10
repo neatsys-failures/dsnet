@@ -29,11 +29,25 @@ private:
 
     Log log;
     std::unordered_map<uint64_t, proto::ReplyMessage> client_table;
+    std::unordered_map<uint64_t, std::unique_ptr<TransportAddress>>
+        address_table;
+
+    std::map<uint32_t, Request> tom_buffer;
 
     void HandleRequest(
         TransportAddress &remote, Request &message, TOMBFTAdapter &meta);
 
-    void ExecuteOne(Request &message);
+    void ExecuteOne(Request &message); // insert into log by the way
+
+    std::vector<Runner::Epilogue> epilogue_list;
+    void ConcludeEpilogue() {
+        runner.RunEpilogue([epilogue_list = this->epilogue_list] {
+            for (Runner::Epilogue epilogue : epilogue_list) {
+                epilogue();
+            }
+        });
+        epilogue_list.clear();
+    }
 };
 
 } // namespace tombft
