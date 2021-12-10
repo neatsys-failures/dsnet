@@ -10,7 +10,7 @@ common.setup('MinBFT performance')
 duration = 10
 replica_task = [
     common.node[i + 1].run(
-        common.replica_cmd(i, duration, "minbft", n_worker=4, batch_size=34),
+        common.replica_cmd(i, duration, "minbft", n_worker=4),
         return_output=True,
     )
     for i in range(3)
@@ -20,8 +20,8 @@ for i in range(3):
 time.sleep(0.5)
 
 client_task = [
-    common.node[5].run(common.client_cmd(i, duration, "minbft", 8))
-    for i in range(10)
+    common.node[5].run(common.client_cmd(i, duration, "minbft", 1))
+    for i in range(1)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
 

@@ -223,8 +223,7 @@ void SpinOrderedRunner::RunWorkerThread(int id) {
 
         if (solo) {
             Latency_Start(&worker_spin[id]);
-            while (next_solo != slot_id && !shutdown) {
-            }
+            SoloSpin(slot_id);
             if (shutdown) {
                 return;
             }
@@ -232,7 +231,7 @@ void SpinOrderedRunner::RunWorkerThread(int id) {
 
             Latency_Start(&worker_task[id]);
             solo();
-            next_solo = (next_solo + 1) % n_slot();
+            SoloDone();
             Latency_EndType(&worker_task[id], 's');
 
             if (epilogue_slots[slot_id]) {

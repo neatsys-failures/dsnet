@@ -110,7 +110,6 @@ class SpinOrderedRunner : public Runner {
     int n_worker;
     static const int N_WORKER_MAX = 128;
     std::thread workers[N_WORKER_MAX];
-    std::atomic<bool> shutdown;
 
     int n_slot() const { return n_worker * 4; }
     static const int N_SLOT_MAX = 1000;
@@ -120,14 +119,36 @@ class SpinOrderedRunner : public Runner {
 
     int next_prologue;
     std::atomic<int> next_solo;
+    virtual void SoloSpin(int slot_id) {
+        while (next_solo != slot_id && !shutdown) {
+        }
+    }
+    virtual void SoloDone() { next_solo = (next_solo + 1) % n_slot(); }
 
     void RunWorkerThread(int id);
+
+protected:
+    std::atomic<bool> shutdown;
 
 public:
     SpinOrderedRunner(int n_worker);
     ~SpinOrderedRunner();
     void RunPrologue(Prologue prologue) override;
     void RunEpilogue(Epilogue epilogue) override;
+};
+
+class SpinRunner : public SpinOrderedRunner {
+    std::atomic<int> slot_mutex;
+    void SoloSpin(int slot_id) override {
+        while (slot_mutex != slot_id && !shutdown) {
+            int expect = -1;
+            slot_mutex.compare_exchange_weak(expect, slot_id);
+        }
+    }
+    void SoloDone() override { slot_mutex = -1; }
+
+public:
+    SpinRunner(int n_worker) : SpinOrderedRunner(n_worker), slot_mutex(-1) {}
 };
 
 } // namespace dsnet
