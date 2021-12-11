@@ -7,6 +7,7 @@ PROTOS += $(addprefix $(d), \
 	    message.proto)
 
 OBJS-tombft-client := $(o)client.o  $(o)adapter.o $(o)message.o \
+               $(o)halfsiphash.o \
                $(OBJS-client) $(LIB-message) \
                $(LIB-configuration) $(LIB-pbmessage) $(LIB-signedadapter)
 

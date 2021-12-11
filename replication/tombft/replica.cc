@@ -180,7 +180,6 @@ void TOMBFTHMACReplica::ReceiveMessage(
                     auto tom = unique_ptr<TOMBFTHMACAdapter>(escaping_tom);
                     HandleHMACRequest(
                         *remote, *message->mutable_request(), *tom);
-                    ConcludeEpilogue();
                 };
             default:
                 RPanic("Unexpected message case: %d", message->get_case());
@@ -219,11 +218,16 @@ void TOMBFTHMACReplica::HandleHMACRequest(
         return; // either it is signed or not, it is useless
     }
 
+    n_message += 1;
     if (meta.MessageNumber() != start_number + last_executed) {
         NOT_IMPLEMENTED(); // state transfer
     }
 
     ExecuteOne(message);
+    if (!epilogue_list.empty()) {
+        runner.RunEpilogue(epilogue_list[0]);
+        epilogue_list.clear();
+    }
 }
 
 struct TOMEntry : public LogEntry {
