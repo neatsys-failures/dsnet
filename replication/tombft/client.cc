@@ -22,8 +22,9 @@ TOMBFTClient::TOMBFTClient(
     pendingRequest = NULL;
     pendingUnloggedRequest = NULL;
     lastReqId = 0;
-    requestTimeout = new Timeout(
-        transport, 100 + (clientid % 100), [this]() { ResendRequest(); });
+    int interval = use_hmac ? 1 : 1000;
+    requestTimeout =
+        new Timeout(transport, interval, [this]() { ResendRequest(); });
 }
 
 TOMBFTClient::~TOMBFTClient() {

@@ -150,6 +150,7 @@ include transaction/Rules.mk
 include sequencer/Rules.mk
 include bench/Rules.mk
 include tests/Rules.mk
+include nistore/Rules.mk
 
 ##################################################################
 # General rules
