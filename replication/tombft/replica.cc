@@ -2,8 +2,8 @@
 
 #include "common/pbmessage.h"
 #include "common/signedadapter.h"
-#include "lib/message.h"
 #include "lib/latency.h"
+#include "lib/message.h"
 
 #define RDebug(fmt, ...) Debug("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
 #define RNotice(fmt, ...) Notice("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
@@ -19,7 +19,64 @@ using std::unique_ptr;
 
 static int n_message = 0, n_signed_message = 0;
 
-TOMBFTReplica::~TOMBFTReplica() {
+TOMBFTReplicaBase::TOMBFTReplicaBase(
+    const Configuration &config, int replica_index, const string &identifier,
+    Transport *transport, AppReplica *app)
+    : Replica(config, 0, replica_index, true, transport, app),
+      identifier(identifier), start_number((uint32_t)-1), last_executed(0),
+      session_number(0), log(false) //
+{
+    transport->ListenOnMulticast(this, config);
+}
+
+void TOMBFTReplicaBase::ExecuteOne(Request &request_message) {
+    last_executed += 1;
+    // TODO
+    log.Append(new LogEntry(
+        viewstamp_t(0, last_executed), LOG_STATE_SPECULATIVE, request_message));
+
+    auto message = std::unique_ptr<proto::Message>(new proto::Message);
+    if (client_table.count(request_message.clientid())) {
+        if (client_table[request_message.clientid()].client_request() >
+            request_message.clientreqid()) {
+            return;
+        }
+        if (client_table[request_message.clientid()].client_request() ==
+            request_message.clientreqid()) {
+            *message->mutable_reply() =
+                client_table[request_message.clientid()];
+        }
+    }
+    if (!message->has_reply()) {
+        struct ExecuteContext {
+            string result;
+            void set_reply(const string &result) { this->result = result; }
+        };
+        ExecuteContext ctx;
+        Execute(last_executed, request_message, ctx);
+        auto reply = message->mutable_reply();
+        reply->set_client_request(request_message.clientreqid());
+        reply->set_result(ctx.result);
+        reply->set_replica_index(replicaIdx);
+        client_table[request_message.clientid()] = *reply;
+    }
+
+    epilogue_list.push_back(
+        [ //
+            this,
+            escaping_remote =
+                address_table[request_message.clientid()]->clone(),
+            escaping_message = message.release() //
+    ]() {
+            auto message = std::unique_ptr<proto::Message>(escaping_message);
+            auto remote = std::unique_ptr<TransportAddress>(escaping_remote);
+            PBMessage pb_layer(*message);
+            transport->SendMessage(
+                this, *remote, SignedAdapter(pb_layer, identifier, false));
+        });
+}
+
+TOMBFTReplicaBase::~TOMBFTReplicaBase() {
     RNotice(
         "n_message = %d, n_signed_message = %d", n_message, n_signed_message);
     RNotice(
@@ -79,10 +136,6 @@ void TOMBFTReplica::HandleRequest(
         }
         return;
     }
-}
-
-TOMBFTHMACReplica::~TOMBFTHMACReplica() {
-    // Latency_DumpAll();
 }
 
 void TOMBFTHMACReplica::HandleRequest(

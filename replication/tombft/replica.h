@@ -69,18 +69,13 @@ public:
     }
 };
 
-template <typename Layout> class TOMBFTReplicaCommon : public Replica {
-public:
-    TOMBFTReplicaCommon(
-        const Configuration &config, int replica_index,
-        const string &identifier, int worker_thread_count, Transport *transport,
-        AppReplica *app);
-
-    void ReceiveMessage(
-        const TransportAddress &remote, void *buf, size_t len) override;
-
+class TOMBFTReplicaBase : public Replica {
 protected:
-    TOMBFTRunner<typename LayoutToRunner<Layout>::Runner> runner;
+    TOMBFTReplicaBase(
+        const Configuration &config, int replica_index,
+        const string &identifier, Transport *transport, AppReplica *app);
+    ~TOMBFTReplicaBase();
+
     const string identifier;
 
     uint32_t start_number;
@@ -93,39 +88,42 @@ protected:
         address_table;
 
     std::map<uint32_t, Request> tom_buffer;
+    void ExecuteOne(Request &message); // insert into log by the way
+
+    std::vector<Runner::Epilogue> epilogue_list;
+};
+
+template <typename Layout>
+class TOMBFTReplicaCommon : public TOMBFTReplicaBase {
+public:
+    TOMBFTReplicaCommon(
+        const Configuration &config, int replica_index,
+        const string &identifier, int worker_thread_count, Transport *transport,
+        AppReplica *app)
+        : TOMBFTReplicaBase(config, replica_index, identifier, transport, app),
+          runner(worker_thread_count, replica_index) {}
+
+    void ReceiveMessage(
+        const TransportAddress &remote, void *buf, size_t len) override;
+
+protected:
+    TOMBFTRunner<typename LayoutToRunner<Layout>::Runner> runner;
 
     virtual void
     HandleRequest(TransportAddress &remote, Request &message, Layout &meta) = 0;
 
-    void ExecuteOne(Request &message); // insert into log by the way
-
-    std::vector<Runner::Epilogue> epilogue_list;
     void ConcludeEpilogue() {
         if (epilogue_list.empty()) {
             return;
         }
-        std::vector<Runner::Epilogue> runner_list(epilogue_list);
-        epilogue_list.clear();
-
-        runner.RunEpilogue([runner_list] {
+        runner.RunEpilogue([runner_list = epilogue_list] {
             for (Runner::Epilogue epilogue : runner_list) {
                 epilogue();
             }
         });
+        epilogue_list.clear();
     }
 };
-
-template <typename Layout>
-TOMBFTReplicaCommon<Layout>::TOMBFTReplicaCommon(
-    const Configuration &config, int replica_index, const string &identifier,
-    int worker_thread_count, Transport *transport, AppReplica *app)
-    : Replica(config, 0, replica_index, true, transport, app),
-      runner(worker_thread_count, replica_index), identifier(identifier),
-      start_number((uint32_t)-1), last_executed(0), session_number(0),
-      log(false) //
-{
-    transport->ListenOnMulticast(this, config);
-}
 
 template <typename Layout>
 void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
@@ -180,54 +178,6 @@ void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
     // }
 }
 
-template <typename Layout>
-void TOMBFTReplicaCommon<Layout>::ExecuteOne(Request &request_message) {
-    last_executed += 1;
-    // TODO
-    log.Append(new LogEntry(
-        viewstamp_t(0, last_executed), LOG_STATE_SPECULATIVE, request_message));
-
-    auto message = std::unique_ptr<proto::Message>(new proto::Message);
-    if (client_table.count(request_message.clientid())) {
-        if (client_table[request_message.clientid()].client_request() >
-            request_message.clientreqid()) {
-            return;
-        }
-        if (client_table[request_message.clientid()].client_request() ==
-            request_message.clientreqid()) {
-            *message->mutable_reply() =
-                client_table[request_message.clientid()];
-        }
-    }
-    if (!message->has_reply()) {
-        struct ExecuteContext {
-            string result;
-            void set_reply(const string &result) { this->result = result; }
-        };
-        ExecuteContext ctx;
-        Execute(last_executed, request_message, ctx);
-        auto reply = message->mutable_reply();
-        reply->set_client_request(request_message.clientreqid());
-        reply->set_result(ctx.result);
-        reply->set_replica_index(replicaIdx);
-        client_table[request_message.clientid()] = *reply;
-    }
-
-    epilogue_list.push_back(
-        [ //
-            this,
-            escaping_remote =
-                address_table[request_message.clientid()]->clone(),
-            escaping_message = message.release() //
-    ]() {
-            auto message = std::unique_ptr<proto::Message>(escaping_message);
-            auto remote = std::unique_ptr<TransportAddress>(escaping_remote);
-            PBMessage pb_layer(*message);
-            transport->SendMessage(
-                this, *remote, SignedAdapter(pb_layer, identifier, false));
-        });
-}
-
 class TOMBFTReplica : public TOMBFTReplicaCommon<TOMBFTAdapter> {
     void HandleRequest(
         TransportAddress &remote, Request &message,
@@ -241,7 +191,6 @@ public:
         : TOMBFTReplicaCommon<TOMBFTAdapter>(
               config, replica_index, identifier, worker_thread_count, transport,
               app) {}
-    ~TOMBFTReplica();
 };
 
 class TOMBFTHMACReplica : public TOMBFTReplicaCommon<TOMBFTHMACAdapter> {
@@ -257,7 +206,6 @@ public:
         : TOMBFTReplicaCommon<TOMBFTHMACAdapter>(
               config, replica_index, identifier, worker_thread_count, transport,
               app) {}
-    ~TOMBFTHMACReplica();
 };
 
 #undef RPanic
