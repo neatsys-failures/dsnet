@@ -64,6 +64,24 @@ void Runner::SetAffinity(thread &t) {
     SetThreadAffinity(t.native_handle(), core_id);
 }
 
+void NoRunner::RunPrologue(Prologue prologue) {
+    Latency_Start(&worker_task[0]);
+    Solo solo = prologue();
+    Latency_EndType(&worker_task[0], 'p');
+    if (!solo) {
+        return;
+    }
+    epilogue = nullptr;
+    Latency_Start(&worker_task[0]);
+    solo();
+    Latency_EndType(&worker_task[0], 's');
+    if (epilogue) {
+        Latency_Start(&worker_task[0]);
+        epilogue();
+        Latency_EndType(&worker_task[0], 'e');
+    }
+}
+
 void CTPLRunner::RunPrologue(Prologue prologue) {
     Latency_Start(&driver_spin);
     pool.push([this, prologue](int id) {

@@ -59,7 +59,7 @@ void TOMBFTClient::SendRequest() {
     SignedAdapter signed_layer(pb_m, identifier);
     if (use_hmac) {
         transport->SendMessageToMulticast(
-            this, TOMBFTHMACAdapter(signed_layer, -1, true));
+            this, TOMBFTHMACAdapter(signed_layer, true, -1));
     } else {
         transport->SendMessageToMulticast(
             this, TOMBFTAdapter(signed_layer, true));

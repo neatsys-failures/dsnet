@@ -8,7 +8,7 @@ class TOMBFTAdapter : public Message {
 public:
     // `multicast` is only considered during serialization
     // parsing determine multicast by message content
-    TOMBFTAdapter(Message &inner, bool multicast);
+    TOMBFTAdapter(Message &inner, bool multicast, int replica_id = 0);
 
     // override methods
     TOMBFTAdapter *Clone() const override;
@@ -38,7 +38,7 @@ public:
     // receiving side: multicast not care, replica id set to receiver's one
     // replica id is used as identifier in this case, because we do not have a
     // identifier -> replica id lookup spec now
-    TOMBFTHMACAdapter(Message &inner, int replica_id, bool multicast)
+    TOMBFTHMACAdapter(Message &inner, bool multicast, int replica_id)
         : inner(inner), replica_id(replica_id), is_multicast(multicast) {}
 
     TOMBFTHMACAdapter *Clone() const override {

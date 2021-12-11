@@ -32,17 +32,7 @@ class NoRunner : public Runner {
     Epilogue epilogue;
 
 public:
-    void RunPrologue(Prologue prologue) override {
-        Solo solo = prologue();
-        if (!solo) {
-            return;
-        }
-        epilogue = nullptr;
-        solo();
-        if (epilogue) {
-            epilogue();
-        }
-    }
+    void RunPrologue(Prologue prologue) override;
     void RunEpilogue(Epilogue epilogue) override { this->epilogue = epilogue; }
 };
 
