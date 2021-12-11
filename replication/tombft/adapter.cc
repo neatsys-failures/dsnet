@@ -1,6 +1,7 @@
 #include "replication/tombft/adapter.h"
 
 #include "lib/assert.h"
+#include "lib/latency.h"
 #include <cstring>
 #include <endian.h>
 #include <openssl/sha.h>
@@ -212,6 +213,9 @@ extern "C" int halfsiphash(
     const void *in, const size_t inlen, const void *k, uint8_t *out,
     const size_t outlen);
 
+DEFINE_LATENCY(inner_parse);
+DEFINE_LATENCY(do_halfsiphash);
+
 void TOMBFTHMACAdapter::Parse(const void *buf, size_t size) {
     const HMACLayout *layout = (const HMACLayout *)buf;
     is_multicast = layout->unicast.flag;
@@ -233,7 +237,10 @@ void TOMBFTHMACAdapter::Parse(const void *buf, size_t size) {
 
     uint8_t out[4];
     uint8_t k[8] = {0x30, 0x31, 0x32, 0x33, 0x38, 0x39, 0x41, 0x42};
+
+    Latency_Start(&do_halfsiphash);
     halfsiphash(regen.digest, 16, k, out, 4);
+    Latency_End(&do_halfsiphash);
     is_verified = memcmp(out, layout->multicast.hmac[replica_id], 4) == 0;
     is_verified = true; // anyway...
 
@@ -245,7 +252,10 @@ void TOMBFTHMACAdapter::Parse(const void *buf, size_t size) {
     if (message_number == 0) {
         Panic("TOM message not sequenced");
     }
+
+    Latency_Start(&inner_parse);
     inner.Parse(layout->multicast.inner_buf, size - sizeof(layout->multicast));
+    Latency_End(&inner_parse);
 }
 
 } // namespace tombft

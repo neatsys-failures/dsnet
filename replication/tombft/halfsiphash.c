@@ -84,12 +84,12 @@ int halfsiphash(const void *in, const size_t inlen, const void *k, uint8_t *out,
     const int left = inlen & 3;
     uint32_t b = ((uint32_t)inlen) << 24;
     // uint32_t b = 0;
-    printf("%x\n", v0);
-    printf("%x\n", v1);
-    printf("%x\n", v2);
-    printf("%x\n", v3);
-    printf("%x\n", k0);
-    printf("%x\n", k1);
+    // printf("%x\n", v0);
+    // printf("%x\n", v1);
+    // printf("%x\n", v2);
+    // printf("%x\n", v3);
+    // printf("%x\n", k0);
+    // printf("%x\n", k1);
     v3 ^= k1;
     v2 ^= k0;
     v1 ^= k1;
@@ -100,7 +100,7 @@ int halfsiphash(const void *in, const size_t inlen, const void *k, uint8_t *out,
 
     for (; ni != end; ni += 4) {
         m = U8TO32_LE(ni);
-        printf("%x\n", m);
+        // printf("%x\n", m);
         v3 ^= m;
 
         // TRACE;

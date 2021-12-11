@@ -3,6 +3,7 @@
 #include "common/pbmessage.h"
 #include "common/signedadapter.h"
 #include "lib/message.h"
+#include "lib/latency.h"
 
 #define RDebug(fmt, ...) Debug("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
 #define RNotice(fmt, ...) Notice("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
@@ -15,7 +16,6 @@ namespace tombft {
 using std::move;
 using std::string;
 using std::unique_ptr;
-using PBAdapter = PBMessage;
 
 static int n_message = 0, n_signed_message = 0;
 
@@ -79,6 +79,10 @@ void TOMBFTReplica::HandleRequest(
         }
         return;
     }
+}
+
+TOMBFTHMACReplica::~TOMBFTHMACReplica() {
+    // Latency_DumpAll();
 }
 
 void TOMBFTHMACReplica::HandleRequest(

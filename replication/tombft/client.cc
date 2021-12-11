@@ -22,8 +22,8 @@ TOMBFTClient::TOMBFTClient(
     pendingRequest = NULL;
     pendingUnloggedRequest = NULL;
     lastReqId = 0;
-    requestTimeout =
-        new Timeout(transport, 1000, [this]() { ResendRequest(); });
+    requestTimeout = new Timeout(
+        transport, 100 + (clientid % 100), [this]() { ResendRequest(); });
 }
 
 TOMBFTClient::~TOMBFTClient() {
@@ -57,12 +57,12 @@ void TOMBFTClient::SendRequest() {
 
     PBMessage pb_m(m);
     SignedAdapter signed_layer(pb_m, identifier);
+    dsnet::Message &message = signed_layer;
     if (use_hmac) {
         transport->SendMessageToMulticast(
-            this, TOMBFTHMACAdapter(signed_layer, true, -1));
+            this, TOMBFTHMACAdapter(message, true, -1));
     } else {
-        transport->SendMessageToMulticast(
-            this, TOMBFTAdapter(signed_layer, true));
+        transport->SendMessageToMulticast(this, TOMBFTAdapter(message, true));
     }
 
     requestTimeout->Reset();

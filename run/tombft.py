@@ -8,10 +8,10 @@ import time
 
 common.setup("TOMBFT performance")
 
-duration = 5
+duration = 10
 replica_task = [
     common.node[i + 1].run(
-        common.replica_cmd(i, duration, "tombft", n_worker=4), return_output=True
+        common.replica_cmd(i, duration, "tombft-hmac", n_worker=4), return_output=True
     )
     for i in range(4)
 ]
@@ -20,7 +20,7 @@ for i in range(4):
 
 time.sleep(0.5)
 client_task = [
-    common.node[5].run(common.client_cmd(i, duration, "tombft", 80))
+    common.node[5].run(common.client_cmd(i, duration, "tombft-hmac", 4))
     for i in range(10)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)

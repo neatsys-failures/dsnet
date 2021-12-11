@@ -27,7 +27,7 @@ public:
         const TransportAddress &remote, void *buf, size_t len) override;
 
 protected:
-    CTPLOrderedRunner runner;
+    SpinOrderedRunner runner;
     const string identifier;
 
     uint32_t start_number;
@@ -67,9 +67,9 @@ TOMBFTReplicaCommon<Layout>::TOMBFTReplicaCommon(
     const Configuration &config, int replica_index, const string &identifier,
     int worker_thread_count, Transport *transport, AppReplica *app)
     : Replica(config, 0, replica_index, true, transport, app),
-      runner(worker_thread_count),
-      identifier(identifier), start_number((uint32_t)-1), last_executed(0),
-      session_number(0), log(false) //
+      runner(worker_thread_count), identifier(identifier),
+      start_number((uint32_t)-1), last_executed(0), session_number(0),
+      log(false) //
 {
     transport->ListenOnMulticast(this, config);
 }
@@ -109,34 +109,29 @@ void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
         });
 
     // smartNIC simulator
-    
-    static string nic_message;
-    if (nic_message.data() == buf) { // this is a nic message
-        nic_message.clear(); // to select next message as next nic message
-    } else if (nic_message.empty()) {
-        nic_message = string((const char *)buf, size);
-        char sig[] = "smartNIC";
-        nic_message.replace(16, sizeof(sig) - 1, sig);
-        // normally delay time is shorter than 1ms, but resolution limits
-        transport->Timer(1, [this, escaping_remote = remote.clone()]()
-        mutable {
-            auto remote = std::unique_ptr<TransportAddress>(escaping_remote);
-            ReceiveMessage(*remote, &nic_message.front(),
-            nic_message.size());
-        });
-    }
-}
 
-struct TOMEntry : public LogEntry {
-    TOMEntry(viewstamp_t viewstamp, LogEntryState state, const Request &request)
-        : LogEntry(viewstamp, state, request) {}
-};
+    // static string nic_message;
+    // if (nic_message.data() == buf) { // this is a nic message
+    //     nic_message.clear(); // to select next message as next nic message
+    // } else if (nic_message.empty()) {
+    //     nic_message = string((const char *)buf, size);
+    //     char sig[] = "smartNIC";
+    //     nic_message.replace(16, sizeof(sig) - 1, sig);
+    //     // normally delay time is shorter than 1ms, but resolution limits
+    //     transport->Timer(1, [this, escaping_remote = remote.clone()]()
+    //     mutable {
+    //         auto remote = std::unique_ptr<TransportAddress>(escaping_remote);
+    //         ReceiveMessage(*remote, &nic_message.front(),
+    //         nic_message.size());
+    //     });
+    // }
+}
 
 template <typename Layout>
 void TOMBFTReplicaCommon<Layout>::ExecuteOne(Request &request_message) {
     last_executed += 1;
     // TODO
-    log.Append(new TOMEntry(
+    log.Append(new LogEntry(
         viewstamp_t(0, last_executed), LOG_STATE_SPECULATIVE, request_message));
 
     auto message = std::unique_ptr<proto::Message>(new proto::Message);
@@ -209,6 +204,7 @@ public:
         : TOMBFTReplicaCommon<TOMBFTHMACAdapter>(
               config, replica_index, identifier, worker_thread_count, transport,
               app) {}
+    ~TOMBFTHMACReplica();
 };
 
 #undef RPanic
