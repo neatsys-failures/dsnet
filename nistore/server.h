@@ -10,14 +10,18 @@
 #ifndef _NI_SERVER_H_
 #define _NI_SERVER_H_
 
-#include "lib/configuration.h"
 #include "common/replica.h"
+#include "lib/configuration.h"
 #include "lib/udptransport.h"
-#include "replication/spec/replica.h"
-#include "replication/vr/replica.h"
-#include "replication/fastpaxos/replica.h"
 #include "nistore/lockstore.h"
 #include "nistore/occstore.h"
+#include "replication/fastpaxos/replica.h"
+#include "replication/hotstuff/replica.h"
+#include "replication/minbft/replica.h"
+#include "replication/pbft/replica.h"
+#include "replication/spec/replica.h"
+#include "replication/tombft/replica.h"
+#include "replication/vr/replica.h"
 #include <vector>
 
 namespace specpaxos = dsnet;
@@ -27,25 +31,24 @@ namespace nistore {
 
 using namespace std;
 
-class Server : public specpaxos::AppReplica
-{
+class Server : public specpaxos::AppReplica {
 public:
     // set up the store
-    Server() {store = OCCStore(); };
-    Server(bool locking) {locking ? store = LockStore() : OCCStore();};
-    ~Server() { };
+    Server() { store = OCCStore(); };
+    Server(bool locking) { locking ? store = LockStore() : OCCStore(); };
+    ~Server(){};
     void ReplicaUpcall(opnum_t opnum, const string &str1, string &str2);
-    void RollbackUpcall(opnum_t current, opnum_t to, const std::map<opnum_t, string> &opMap);
+    void RollbackUpcall(
+        opnum_t current, opnum_t to, const std::map<opnum_t, string> &opMap);
     void CommitUpcall(opnum_t opnum);
 
 private:
     // data store
     TxnStore store;
 
-    struct Operation
-    {
-        long id;  // client ID
-        string op; // requested operation
+    struct Operation {
+        long id;                  // client ID
+        string op;                // requested operation
         std::vector<string> args; // arguments
     };
 

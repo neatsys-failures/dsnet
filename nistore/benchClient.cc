@@ -122,6 +122,16 @@ int main(int argc, char **argv) {
                 mode = nistore::PROTO_VR;
             } else if (strcasecmp(optarg, "fast-occ") == 0) {
                 mode = nistore::PROTO_FAST;
+            } else if (strcasecmp(optarg, "pbft") == 0) {
+                mode = nistore::PROTO_PBFT;
+            } else if (strcasecmp(optarg, "minbft") == 0) {
+                mode = nistore::PROTO_MINBFT;
+            } else if (strcasecmp(optarg, "hotstuff") == 0) {
+                mode = nistore::PROTO_HOTSTUFF;
+            } else if (strcasecmp(optarg, "tombft") == 0) {
+                mode = nistore::PROTO_TOMBFT;
+            } else if (strcasecmp(optarg, "tombft-hmac") == 0) {
+                mode = nistore::PROTO_TOMBFT_HMAC;
             } else {
                 fprintf(stderr, "unknown mode '%s'\n", optarg);
             }

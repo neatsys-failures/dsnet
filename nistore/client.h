@@ -17,7 +17,11 @@
 #include "lib/udptransport.h"
 #include "nistore/request.pb.h"
 #include "replication/fastpaxos/client.h"
+#include "replication/hotstuff/client.h"
+#include "replication/minbft/client.h"
+#include "replication/pbft/client.h"
 #include "replication/spec/client.h"
+#include "replication/tombft/client.h"
 #include "replication/vr/client.h"
 
 #include <condition_variable>
@@ -35,7 +39,17 @@ namespace nistore {
 
 using namespace std;
 
-enum Proto { PROTO_UNKNOWN, PROTO_VR, PROTO_SPEC, PROTO_FAST };
+enum Proto {
+    PROTO_UNKNOWN,
+    PROTO_VR,
+    PROTO_SPEC,
+    PROTO_FAST,
+    PROTO_PBFT,
+    PROTO_MINBFT,
+    PROTO_HOTSTUFF,
+    PROTO_TOMBFT,
+    PROTO_TOMBFT_HMAC,
+};
 
 class Client {
 public:

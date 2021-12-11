@@ -2,19 +2,18 @@
 #include "common/client.h"
 #include "replication/tombft/message.pb.h"
 
-
 namespace dsnet {
 namespace tombft {
 
-class TOMBFTClient : public Client
-{
+class TOMBFTClient : public Client {
 public:
     TOMBFTClient(
-        const Configuration &config, 
-        const ReplicaAddress &addr, const std::string identifier, bool use_hmac,
-        Transport *transport, uint64_t clientid = 0);
+        const Configuration &config, const ReplicaAddress &addr,
+        const std::string identifier, bool use_hmac, Transport *transport,
+        uint64_t clientid = 0);
     virtual ~TOMBFTClient();
-    virtual void Invoke(const string &request, continuation_t continuation) override;
+    virtual void
+    Invoke(const string &request, continuation_t continuation) override;
     virtual void InvokeUnlogged(
         int replicaIdx, const string &request, continuation_t continuation,
         timeout_continuation_t timeoutContinuation = nullptr,
@@ -23,16 +22,16 @@ public:
         const TransportAddress &remote, void *buf, size_t size) override;
 
 protected:
-    struct PendingRequest
-    {
+    struct PendingRequest {
         string request;
         uint64_t clientid;
         uint64_t clientreqid;
         continuation_t continuation;
         bool received[16];
-        inline PendingRequest(string request, uint64_t clientreqid, continuation_t continuation)
-            : request(request), clientreqid(clientreqid), continuation(continuation) 
-        { 
+        inline PendingRequest(
+            string request, uint64_t clientreqid, continuation_t continuation)
+            : request(request), clientreqid(clientreqid),
+              continuation(continuation) {
             for (int i = 0; i < 16; i += 1) {
                 received[i] = false;
             }
@@ -43,10 +42,11 @@ protected:
     Timeout *requestTimeout;
     uint64_t lastReqId;
 
-    void HandleReply(
-        const TransportAddress &remote, const proto::ReplyMessage &msg);
+    void
+    HandleReply(const TransportAddress &remote, const proto::ReplyMessage &msg);
     // void HandleUnloggedReply(
-    //     const TransportAddress &remote, const proto::UnloggedReplyMessage &msg);
+    //     const TransportAddress &remote, const proto::UnloggedReplyMessage
+    //     &msg);
     void SendRequest();
     void ResendRequest();
 
@@ -54,5 +54,5 @@ protected:
     bool use_hmac;
 };
 
-}
-}
+} // namespace tombft
+} // namespace dsnet

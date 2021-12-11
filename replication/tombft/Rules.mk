@@ -9,13 +9,13 @@ PROTOS += $(addprefix $(d), \
 OBJS-tombft-client := $(o)client.o  $(o)adapter.o $(o)message.o \
                $(o)halfsiphash.o \
                $(OBJS-client) $(LIB-message) \
-               $(LIB-configuration) $(LIB-pbmessage) $(LIB-signedadapter)
+               $(LIB-configuration) $(LIB-pbmessage) $(LIB-signedadapter) $(LIB-latency)
 
 OBJS-tombft-replica := $(o)replica.o $(o)adapter.o $(o)message.o \
                $(o)halfsiphash.o \
                $(OBJS-replica) $(LIB-message) \
                $(LIB-configuration) $(LIB-pbmessage) $(LIB-signedadapter) \
-               $(LIB-runner)
+               $(LIB-runner) $(LIB-latency)
 
 $(o)client.o $(o)replica.o: $(o)message.o
 

@@ -75,6 +75,26 @@ Client::Client(
             shard[i] = new specpaxos::fastpaxos::FastPaxosClient(
                 shardConfig, addr, &transport);
             break;
+        case PROTO_PBFT:
+            shard[i] = new dsnet::pbft::PBFTClient(
+                shardConfig, addr, "Alex", &transport);
+            break;
+        case PROTO_MINBFT:
+            shard[i] = new dsnet::minbft::MinBFTClient(
+                shardConfig, addr, "Alex", &transport);
+            break;
+        case PROTO_HOTSTUFF:
+            shard[i] = new dsnet::hotstuff::HotStuffClient(
+                shardConfig, addr, "Alex", &transport);
+            break;
+        case PROTO_TOMBFT:
+            shard[i] = new dsnet::tombft::TOMBFTClient(
+                shardConfig, addr, "Alex", false, &transport);
+            break;
+        case PROTO_TOMBFT_HMAC:
+            shard[i] = new dsnet::tombft::TOMBFTClient(
+                shardConfig, addr, "Alex", true, &transport);
+            break;
         default:
             NOT_REACHABLE();
         }
