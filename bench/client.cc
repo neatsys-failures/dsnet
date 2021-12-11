@@ -85,6 +85,7 @@ int main(int argc, char **argv) {
         PROTO_SPEC,
         PROTO_NOPAXOS,
         PROTO_TOMBFT,
+        PROTO_TOMBFT_HMAC,
         PROTO_HOTSTUFF,
         PROTO_PBFT,
         PROTO_MINBFT
@@ -147,6 +148,8 @@ int main(int argc, char **argv) {
                 proto = PROTO_NOPAXOS;
             } else if (strcasecmp(optarg, "tombft") == 0) {
                 proto = PROTO_TOMBFT;
+            } else if (strcasecmp(optarg, "tombft-hmac") == 0) {
+                proto = PROTO_TOMBFT_HMAC;
             } else if (strcasecmp(optarg, "hotstuff") == 0) {
                 proto = PROTO_HOTSTUFF;
             } else if (strcasecmp(optarg, "pbft") == 0) {
@@ -276,7 +279,12 @@ int main(int argc, char **argv) {
 
         case PROTO_TOMBFT:
             client = new dsnet::tombft::TOMBFTClient(
-                config, addr, "Alex", transport);
+                config, addr, "Alex", false, transport);
+            break;
+
+        case PROTO_TOMBFT_HMAC:
+            client = new dsnet::tombft::TOMBFTClient(
+                config, addr, "Alex", true, transport);
             break;
 
         case PROTO_HOTSTUFF:

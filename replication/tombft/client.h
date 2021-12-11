@@ -11,7 +11,7 @@ class TOMBFTClient : public Client
 public:
     TOMBFTClient(
         const Configuration &config, 
-        const ReplicaAddress &addr, const std::string identifier,
+        const ReplicaAddress &addr, const std::string identifier, bool use_hmac,
         Transport *transport, uint64_t clientid = 0);
     virtual ~TOMBFTClient();
     virtual void Invoke(const string &request, continuation_t continuation) override;
@@ -51,6 +51,7 @@ protected:
     void ResendRequest();
 
     const std::string identifier;
+    bool use_hmac;
 };
 
 }

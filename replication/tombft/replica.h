@@ -20,8 +20,8 @@ public:
     void ReceiveMessage(
         const TransportAddress &remote, void *buf, size_t size) override;
 
-private:
-    CTPLRunner runner;
+protected:
+    CTPLOrderedRunner runner;
     const string identifier;
 
     uint32_t start_number;
@@ -49,6 +49,22 @@ private:
         });
         epilogue_list.clear();
     }
+};
+
+class TOMBFTHMACReplica : public TOMBFTReplica {
+    void ReceiveMessage(
+        const TransportAddress &remote, void *buf, size_t size) override;
+    void HandleHMACRequest(
+        TransportAddress &remote, Request &message, TOMBFTHMACAdapter &meta);
+
+public:
+    TOMBFTHMACReplica(
+        const Configuration &config, int replica_index,
+        const string &identifier, int worker_thread_count, Transport *transport,
+        AppReplica *app)
+        : TOMBFTReplica(
+              config, replica_index, identifier, worker_thread_count, transport,
+              app) {}
 };
 
 } // namespace tombft

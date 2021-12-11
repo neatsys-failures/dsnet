@@ -146,12 +146,90 @@ void TOMBFTAdapter::Parse(const void *buf, size_t size) {
 #ifdef DSNET_TOM_FPGA_DEMO
         is_verified =
             secp256k1_ecdsa_verify(ctx, sig_p, regen.digest, SWITCH_PUBKEY) ||
-            layout->multicast.signature[0] >= 0x30;
+            // layout->multicast.signature[0] >= 0x30;
+            layout->multicast.message_number;
 #else
         is_verified =
             secp256k1_ecdsa_verify(ctx, sig_p, regen.digest, SWITCH_PUBKEY);
 #endif
     }
+
+    if (!is_verified) {
+        return;
+    }
+    message_number = be32toh(layout->multicast.message_number);
+    session_number = be16toh(layout->multicast.session_number);
+    if (message_number == 0) {
+        Panic("TOM message not sequenced");
+    }
+    inner.Parse(layout->multicast.inner_buf, size - sizeof(layout->multicast));
+}
+
+struct __attribute__((packed)) HMACLayout {
+    union {
+        uint8_t digest[32];
+        struct {
+            uint16_t session_number;
+            uint8_t _unused1[2];
+            uint32_t message_number;
+            uint8_t _reserved[4];
+            uint8_t _unused2[4];
+            uint8_t hmac[4][4];
+            uint8_t inner_buf[0];
+        } multicast;
+        struct {
+            uint16_t flag;
+            uint8_t inner_buf[0];
+        } unicast;
+    };
+};
+
+size_t TOMBFTHMACAdapter::SerializedSize() const {
+    if (is_multicast) {
+        return sizeof(HMACLayout().multicast) + inner.SerializedSize();
+    } else {
+        return sizeof(HMACLayout().unicast) + inner.SerializedSize();
+    }
+}
+
+void TOMBFTHMACAdapter::Serialize(void *buf) const {
+    HMACLayout *layout = (HMACLayout *)buf;
+    if (!is_multicast) {
+        memset(layout, 0, sizeof(layout->unicast));
+        inner.Serialize(layout->unicast.inner_buf);
+        return;
+    }
+
+    inner.Serialize(layout->multicast.inner_buf);
+    SHA256(layout->multicast.inner_buf, inner.SerializedSize(), layout->digest);
+    layout->multicast.session_number = 0;
+    layout->multicast.message_number = 0;
+    memset(layout->multicast._reserved, 0, sizeof(layout->multicast._reserved));
+    memset(layout->multicast.hmac, 0, sizeof(layout->multicast.hmac));
+}
+
+void TOMBFTHMACAdapter::Parse(const void *buf, size_t size) {
+    const HMACLayout *layout = (const HMACLayout *)buf;
+    is_multicast = layout->unicast.flag;
+    if (!is_multicast) {
+        is_verified = true;
+        message_number = 0;
+        session_number = 0;
+        inner.Parse(layout->unicast.inner_buf, size - sizeof(layout->unicast));
+        return;
+    }
+    // restore the "correct" digest in switch's view
+    HMACLayout regen;
+    SHA256(
+        layout->multicast.inner_buf, size - sizeof(regen.multicast),
+        regen.digest);
+    regen.multicast.session_number = layout->multicast.session_number;
+    regen.multicast.message_number = layout->multicast.message_number;
+    memset(regen.multicast._reserved, 0, sizeof(regen.multicast._reserved));
+    memset(regen.multicast.hmac, 0, sizeof(regen.multicast.hmac));
+
+    // TODO halfsiphash here
+    is_verified = true;
 
     if (!is_verified) {
         return;

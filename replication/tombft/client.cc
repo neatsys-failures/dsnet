@@ -15,8 +15,10 @@ using std::string;
 
 TOMBFTClient::TOMBFTClient(
     const Configuration &config, const ReplicaAddress &addr,
-    const string identifier, Transport *transport, uint64_t clientid)
-    : Client(config, addr, transport, clientid), identifier(identifier) {
+    const string identifier, bool use_hmac, Transport *transport,
+    uint64_t clientid)
+    : Client(config, addr, transport, clientid), identifier(identifier),
+      use_hmac(use_hmac) {
     pendingRequest = NULL;
     pendingUnloggedRequest = NULL;
     lastReqId = 0;
@@ -55,12 +57,19 @@ void TOMBFTClient::SendRequest() {
 
     PBMessage pb_m(m);
     SignedAdapter signed_layer(pb_m, identifier);
-    transport->SendMessageToMulticast(this, TOMBFTAdapter(signed_layer, true));
+    if (use_hmac) {
+        transport->SendMessageToMulticast(
+            this, TOMBFTHMACAdapter(signed_layer, -1, true));
+    } else {
+        transport->SendMessageToMulticast(
+            this, TOMBFTAdapter(signed_layer, true));
+    }
 
     requestTimeout->Reset();
 }
 
 void TOMBFTClient::ResendRequest() {
+    // NOT_REACHABLE();
     Warning("Timeout, resending request for req id %lu", lastReqId);
     SendRequest();
 }

@@ -84,7 +84,8 @@ int main(int argc, char **argv) {
         PROTO_TOMBFT,
         PROTO_HOTSTUFF,
         PROTO_PBFT,
-        PROTO_MINBFT
+        PROTO_MINBFT,
+        PROTO_TOMBFT_HMAC,
     } proto = PROTO_UNKNOWN;
 
     // Parse arguments
@@ -141,6 +142,8 @@ int main(int argc, char **argv) {
                 proto = PROTO_NOPAXOS;
             } else if (strcasecmp(optarg, "tombft") == 0) {
                 proto = PROTO_TOMBFT;
+            } else if (strcasecmp(optarg, "tombft-hmac") == 0) {
+                proto = PROTO_TOMBFT_HMAC;
             } else if (strcasecmp(optarg, "hotstuff") == 0) {
                 proto = PROTO_HOTSTUFF;
             } else if (strcasecmp(optarg, "pbft") == 0) {
@@ -251,6 +254,11 @@ int main(int argc, char **argv) {
 
     case PROTO_TOMBFT:
         replica = new dsnet::tombft::TOMBFTReplica(
+            config, index, "Steve", n_worker_thread, &transport, nullApp);
+        break;
+
+    case PROTO_TOMBFT_HMAC:
+        replica = new dsnet::tombft::TOMBFTHMACReplica(
             config, index, "Steve", n_worker_thread, &transport, nullApp);
         break;
 
