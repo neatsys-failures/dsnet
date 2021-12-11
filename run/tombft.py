@@ -8,7 +8,7 @@ import time
 
 common.setup("TOMBFT performance")
 
-duration = 10
+duration = 1
 replica_task = [
     common.node[i + 1].run(
         common.replica_cmd(i, duration, "tombft-hmac", n_worker=4), return_output=True

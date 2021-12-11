@@ -208,6 +208,10 @@ void TOMBFTHMACAdapter::Serialize(void *buf) const {
     memset(layout->multicast.hmac, 0, sizeof(layout->multicast.hmac));
 }
 
+extern "C" int halfsiphash(
+    const void *in, const size_t inlen, const void *k, uint8_t *out,
+    const size_t outlen);
+
 void TOMBFTHMACAdapter::Parse(const void *buf, size_t size) {
     const HMACLayout *layout = (const HMACLayout *)buf;
     is_multicast = layout->unicast.flag;
@@ -226,10 +230,12 @@ void TOMBFTHMACAdapter::Parse(const void *buf, size_t size) {
     regen.multicast.session_number = layout->multicast.session_number;
     regen.multicast.message_number = layout->multicast.message_number;
     memset(regen.multicast._reserved, 0, sizeof(regen.multicast._reserved));
-    memset(regen.multicast.hmac, 0, sizeof(regen.multicast.hmac));
 
     // TODO halfsiphash here
-    is_verified = true;
+    uint8_t out[4];
+    uint8_t k[8] = {0x30, 0x31, 0x32, 0x33, 0x38, 0x39, 0x41, 0x42};
+    halfsiphash(regen.digest, 16, k, out, 4);
+    is_verified = memcmp(out, layout->multicast.hmac[replica_id], 4);
 
     if (!is_verified) {
         return;

@@ -22,8 +22,6 @@ public:
 
 protected:
     void SetAffinity(std::thread &t);
-
-private:
     int core_id;
 };
 
