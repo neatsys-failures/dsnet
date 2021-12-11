@@ -16,6 +16,59 @@ namespace tombft {
 #define RWarning(fmt, ...) Warning("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
 #define RPanic(fmt, ...) Panic("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
 
+template <typename Layout> struct LayoutToRunner {};
+template <> struct LayoutToRunner<TOMBFTAdapter> {
+    using Runner = SpinOrderedRunner;
+};
+template <> struct LayoutToRunner<TOMBFTHMACAdapter> {
+    using Runner = SpinRunner;
+};
+
+template <typename BaseRunner> class TOMBFTRunner : public BaseRunner {
+public:
+    TOMBFTRunner(int n_worker, int replica_id) : BaseRunner(n_worker) {
+        int &core_id = BaseRunner::core_id;
+        switch (replica_id / 4) {
+        case 0:
+            core_id = 0;
+            break;
+        case 1:
+            core_id = 3;
+            break;
+        case 2:
+            core_id = 6;
+            break;
+        case 3:
+            core_id = 9;
+            break;
+        case 4:
+            core_id = 12;
+            break;
+        case 5:
+            core_id = 32;
+            break;
+        case 6:
+            core_id = 35;
+            break;
+        case 7:
+            core_id = 38;
+            break;
+        case 8:
+            core_id = 41;
+            break;
+        case 9:
+            core_id = 44;
+            break;
+        default:
+            Panic("Too many replicas");
+        }
+        BaseRunner::SetAffinity();
+        for (int i = 0; i < BaseRunner::n_worker; i += 1) {
+            BaseRunner::SetAffinity(BaseRunner::workers[i]);
+        }
+    }
+};
+
 template <typename Layout> class TOMBFTReplicaCommon : public Replica {
 public:
     TOMBFTReplicaCommon(
@@ -27,7 +80,7 @@ public:
         const TransportAddress &remote, void *buf, size_t len) override;
 
 protected:
-    SpinOrderedRunner runner;
+    TOMBFTRunner<typename LayoutToRunner<Layout>::Runner> runner;
     const string identifier;
 
     uint32_t start_number;
@@ -67,7 +120,7 @@ TOMBFTReplicaCommon<Layout>::TOMBFTReplicaCommon(
     const Configuration &config, int replica_index, const string &identifier,
     int worker_thread_count, Transport *transport, AppReplica *app)
     : Replica(config, 0, replica_index, true, transport, app),
-      runner(worker_thread_count), identifier(identifier),
+      runner(worker_thread_count, replica_index), identifier(identifier),
       start_number((uint32_t)-1), last_executed(0), session_number(0),
       log(false) //
 {

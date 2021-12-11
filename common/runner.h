@@ -21,6 +21,7 @@ public:
     virtual void RunEpilogue(Epilogue epilogue) = 0;
 
 protected:
+    void SetAffinity();
     void SetAffinity(std::thread &t);
     int core_id;
 };
@@ -43,6 +44,7 @@ class CTPLRunner : public Runner {
 
 public:
     CTPLRunner(int n_worker) : pool(n_worker) {
+        SetAffinity();
         for (int i = 0; i < n_worker; i += 1) {
             SetAffinity(pool.get_thread(i));
         }
@@ -63,6 +65,7 @@ public:
     CTPLOrderedRunner(int n_worker) : pool(n_worker) {
         prologue_id = last_task = 0;
 
+        SetAffinity();
         for (int i = 0; i < n_worker; i += 1) {
             SetAffinity(pool.get_thread(i));
         }
@@ -79,6 +82,7 @@ class CTPLPipelineRunner : public Runner {
 
 public:
     CTPLPipelineRunner(int n_worker) : pool(n_worker - 1), replica_pool(1) {
+        SetAffinity();
         SetAffinity(replica_pool.get_thread(0));
         for (int i = 0; i < n_worker - 1; i += 1) {
             SetAffinity(pool.get_thread(i));
@@ -96,7 +100,6 @@ public:
 // enough, it could cause severe packet dropping
 class SpinOrderedRunner : public Runner {
     static const int N_WORKER_MAX = 128;
-    std::thread workers[N_WORKER_MAX];
 
     static const int N_SLOT_MAX = 1000;
     Prologue prologue_slots[N_SLOT_MAX];
@@ -117,6 +120,7 @@ class SpinOrderedRunner : public Runner {
 
 protected:
     int n_worker;
+    std::thread workers[N_WORKER_MAX];
     std::atomic<bool> shutdown;
     std::atomic<bool> slot_ready[N_SLOT_MAX];
     int next_prologue;
@@ -129,6 +133,10 @@ public:
     void RunEpilogue(Epilogue epilogue) override;
 };
 
+// relax ordering constraint, but currently running slower on baseline
+// (signedunrep), need a better `DriverSpin`, maybe
+// using on some protocols where requests are broadcast to every replica but
+// are ignored by all backup
 class SpinRunner : public SpinOrderedRunner {
     int n_slot() const override { return n_worker; }
     void SoloSpin(int slot_id) override {

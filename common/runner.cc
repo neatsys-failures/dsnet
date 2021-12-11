@@ -26,7 +26,7 @@ static void SetThreadAffinity(pthread_t thread, int core_id) {
 }
 
 Runner::Runner() {
-    SetThreadAffinity(pthread_self(), 0);
+    // SetThreadAffinity(pthread_self(), 0);
     core_id = 0;
 
     _Latency_Init(&driver_spin, "driver_spin");
@@ -52,16 +52,21 @@ Runner::~Runner() {
     Latency_Dump(&sum_worker_spin);
 }
 
-void Runner::SetAffinity(thread &t) {
-    core_id += 1;
-    while (core_id == 15 || core_id / 16 == 1) {
-        // while (core_id == 15) {
-        core_id += 1;
-    }
+static void SetAffinityImpl(pthread_t t, int &core_id) {
     if (core_id == 64) {
         Panic("Too many threads");
     }
-    SetThreadAffinity(t.native_handle(), core_id);
+    SetThreadAffinity(t, core_id);
+    core_id += 1;
+    // isolated cpu on NSL nodes: 0-14,32-46
+    while (core_id == 15 || core_id / 16 == 1) {
+        core_id += 1;
+    }
+}
+
+void Runner::SetAffinity() { SetAffinityImpl(pthread_self(), core_id); }
+void Runner::SetAffinity(thread &t) {
+    SetAffinityImpl(t.native_handle(), core_id);
 }
 
 void NoRunner::RunPrologue(Prologue prologue) {
@@ -191,6 +196,7 @@ SpinOrderedRunner::SpinOrderedRunner(int n_worker) : n_worker(n_worker) {
     }
     next_prologue = next_solo = 0;
 
+    SetAffinity();
     for (int i = 0; i < n_worker; i += 1) {
         workers[i] = thread([this, i] { RunWorkerThread(i); });
         SetAffinity(workers[i]);
