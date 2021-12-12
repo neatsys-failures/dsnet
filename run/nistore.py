@@ -47,10 +47,16 @@ pyrem.task.Parallel(
                 common.proj_dir + "run/nsl",
                 "-m",
                 mode,
-                "-f",
-                common.key_file,
                 "-h",
                 "11.0.0.101",
+                "-f",
+                common.key_file,
+                "-k",
+                "10000000",
+                "-w",
+                "10",
+                "2>",
+                "/dev/null",
             ]
         )
         for i in range(1)
