@@ -126,7 +126,7 @@ void TOMBFTReplica::HandleRequest(
             }
             // RNotice("executing %d", iter->first);
             if (iter->first != start_number + last_executed) {
-                RPanic(
+                RWarning(
                     "Gap: %lu (+%lu)", start_number + last_executed,
                     iter->first - (start_number + last_executed));
                 NOT_IMPLEMENTED(); // state transfer
@@ -169,6 +169,9 @@ void TOMBFTHMACReplica::HandleRequest(
 
     n_message += 1;
     if (meta.MessageNumber() != start_number + last_executed) {
+        RWarning(
+            "Gap: %lu (+%lu)", start_number + last_executed,
+            meta.MessageNumber() - (start_number + last_executed));
         NOT_IMPLEMENTED(); // state transfer
     }
 

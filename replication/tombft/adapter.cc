@@ -229,7 +229,7 @@ void TOMBFTHMACAdapter::Parse(const void *buf, size_t size) {
     // restore the "correct" digest in switch's view
     HMACLayout regen;
     SHA256(
-        layout->multicast.inner_buf, size - sizeof(regen.multicast),
+        layout->multicast.inner_buf, size - sizeof(layout->multicast),
         regen.digest);
     regen.multicast.session_number = layout->multicast.session_number;
     regen.multicast.message_number = layout->multicast.message_number;

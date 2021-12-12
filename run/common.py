@@ -87,6 +87,9 @@ def setup(title):
         ]
     pyrem.task.Parallel(rsync_tasks, aggregate=True).start(wait=True)
 
+    pyrem.task.Parallel(
+        [node[i].run(["pkill", "replica"]) for i in (1, 2, 3, 4)]
+    ).start(wait=True)
     print("!! Start !!")
 
 
@@ -96,16 +99,29 @@ def wait_replica(replica_task, i):
     if re.search(f"Terminating on SIGTERM/SIGINT$", output, re.MULTILINE) is None:
         print(f"Replica {i} not finish normally")
         print(output)
-        sys.exit(1)
+        # sys.exit(1)
+        return False
     with open(pathlib.Path() / "logs" / f"replica-{i}.txt", "w") as log_file:
         log_file.write(output)
+    return True
 
 
-def wait_client(client_task):
+def wait_client(client_task, prefix):
     assert all(task.host == client_task[0].host for task in client_task)
-    pyrem.host.RemoteHost(client_task[0].host).run(
-        ["python3", proj_dir + "run/remote_report.py", str(len(client_task))]
-    ).start(wait=True)
+    rval = (
+        pyrem.host.RemoteHost(client_task[0].host)
+        .run(
+            [
+                "python3",
+                proj_dir + "run/remote_report.py",
+                str(len(client_task)),
+                str(prefix),
+            ],
+            kill_remote=False,
+        )
+        .start(wait=True)
+    )
+    return rval["retcode"] == 0
 
     # throughput_sum = 0
     # median_latency_max = 0

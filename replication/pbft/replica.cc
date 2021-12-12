@@ -209,7 +209,7 @@ void PBFTReplica::CloseBatch() {
         SignedAdapter signed_layer(pb_layer, identifier, false);
         if (signed_layer.SerializedSize() > 1460) {
             RPanic(
-                "Mesage too large: size = %lu", signed_layer.SerializedSize());
+                "Message too large: size = %lu", signed_layer.SerializedSize());
         }
         RDebug("Send Preprepare: op number = %lu", prepare.op_number());
         if (!transport->SendMessageToAll(this, signed_layer)) {

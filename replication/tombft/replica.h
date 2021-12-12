@@ -21,17 +21,17 @@ template <> struct LayoutToRunner<TOMBFTAdapter> {
     using Runner = SpinOrderedRunner;
 };
 template <> struct LayoutToRunner<TOMBFTHMACAdapter> {
-    using Runner = SpinRunner;
+    using Runner = SpinOrderedRunner;
 };
 
 template <typename BaseRunner> class TOMBFTRunner : public BaseRunner {
 public:
     TOMBFTRunner(int n_worker, int replica_id) : BaseRunner(n_worker) {
         int &core_id = BaseRunner::core_id;
+        if (replica_id / 4 == 0) {
+            return;
+        }
         switch (replica_id / 4) {
-        case 0:
-            core_id = 0;
-            break;
         case 1:
             core_id = 3;
             break;
