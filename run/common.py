@@ -110,29 +110,34 @@ def wait_replica(replica_task, i):
 
 
 def wait_client(client_task):
-    throughput_sum = 0
-    median_latency_max = 0
-    for i, task in enumerate(client_task):
-        output = (
-            pyrem.host.RemoteHost(task.host)
-            .run(
-                ["cat", proj_dir + f"client-{i}.txt"],
-                return_output=True,
-            )
-            .start(wait=True)["stdout"]
-            .decode()
-        )
-        match = re.search(r"Total throughput is (\d+) ops/sec$", output, re.MULTILINE)
-        if match is not None:
-            throughput_sum += int(match[1])
-        else:
-            print(f"warning: no data from client-{i}")
-            with open(pathlib.Path() / "logs" / f"client-{i}.txt", "w") as log_file:
-                log_file.write(output)
-            continue
-        match = re.search(r"Median latency is (\d+) us$", output, re.MULTILINE)
-        median_latency_max = max(median_latency_max, int(match[1]))
-    print(throughput_sum, median_latency_max)
+    assert all(task.host == client_task[0].host for task in client_task)
+    pyrem.host.RemoteHost(client_task[0].host).run(
+        ["python3", proj_dir + "run/remote_report.py", str(len(client_task))]
+    ).start(wait=True)
+
+    # throughput_sum = 0
+    # median_latency_max = 0
+    # for i, task in enumerate(client_task):
+    #     output = (
+    #         pyrem.host.RemoteHost(task.host)
+    #         .run(
+    #             ["cat", proj_dir + f"client-{i}.txt"],
+    #             return_output=True,
+    #         )
+    #         .start(wait=True)["stdout"]
+    #         .decode()
+    #     )
+    #     match = re.search(r"Total throughput is (\d+) ops/sec$", output, re.MULTILINE)
+    #     if match is not None:
+    #         throughput_sum += int(match[1])
+    #     else:
+    #         print(f"warning: no data from client-{i}")
+    #         with open(pathlib.Path() / "logs" / f"client-{i}.txt", "w") as log_file:
+    #             log_file.write(output)
+    #         continue
+    #     match = re.search(r"Median latency is (\d+) us$", output, re.MULTILINE)
+    #     median_latency_max = max(median_latency_max, int(match[1]))
+    # print(throughput_sum, median_latency_max)
 
 
 def replica_cmd(index, duration, mode, n_worker, batch_size=1):
