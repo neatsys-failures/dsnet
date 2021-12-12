@@ -18,7 +18,7 @@ namespace tombft {
 
 template <typename Layout> struct LayoutToRunner {};
 template <> struct LayoutToRunner<TOMBFTAdapter> {
-    using Runner = SpinOrderedRunner;
+    using Runner = SpinRunner;
 };
 template <> struct LayoutToRunner<TOMBFTHMACAdapter> {
     using Runner = SpinOrderedRunner;
@@ -140,7 +140,9 @@ void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
             Layout tom(security, true, replicaIdx);
             tom.Parse(owned_buffer.data(), owned_buffer.size());
             if (!tom.IsVerified() || !security.IsVerified()) {
-                RWarning("Failed to verify TOM packet");
+                RWarning(
+                    "Failed to verify TOM packet: tom = %d, request = %d",
+                    tom.IsVerified(), security.IsVerified());
                 return nullptr;
             }
             switch (message.get_case()) {

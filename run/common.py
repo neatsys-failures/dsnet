@@ -7,6 +7,7 @@ import pyrem.task
 
 
 proj_dir = "/home/cowsay/dsnet/"
+key_file = "/home/cowsay/keys.txt"
 local_dir = "/work/dsnet/"
 log_dir = pathlib.Path() / "logs"
 
@@ -31,16 +32,21 @@ def setup(title):
     log_dir.mkdir()
     (log_dir / ".gitignore").write_text("*")
 
+    targets = [
+        "bench/client",
+        "bench/replica",
+        "nistore/benchClient",
+        "nistore/replica",
+        "timeserver/replica",
+    ]
+
     node[0].run(
         [
             "rsync",
             "-a",
             "--exclude",
             ".obj",
-            "--exclude",
-            "bench/client",
-            "--exclude",
-            "bench/replica",
+            *[x for target in targets for x in ("--exclude", target)],
             local_dir,
             f"nsl-node1:" + proj_dir[:-1],
         ]
@@ -55,8 +61,7 @@ def setup(title):
                 "64",
                 "-C",
                 "/home/cowsay/dsnet",
-                "bench/client",
-                "bench/replica",
+                *targets,
             ],
             kill_remote=False,
         )
@@ -74,6 +79,14 @@ def setup(title):
                     "-r",
                     proj_dir + "bench/",
                     f"nsl-node{node_index}.d1:{proj_dir}/bench",
+                ]
+            ),
+            node[1].run(
+                [
+                    "rsync",
+                    "-r",
+                    proj_dir + "nistore/",
+                    f"nsl-node{node_index}.d1:{proj_dir}/nistore",
                 ]
             ),
             node[1].run(
@@ -154,7 +167,7 @@ def replica_cmd(index, duration, mode, n_worker, batch_size=1):
         f"{duration + 3}",
         proj_dir + "bench/replica",
         "-c",
-        proj_dir + "run/nsl.txt",
+        proj_dir + "run/nsl0.config",
         "-m",
         mode,
         "-i",
@@ -172,7 +185,7 @@ def client_cmd(index, duration, mode, n_thread):
         f"{duration + 2}",
         proj_dir + "bench/client",
         "-c",
-        proj_dir + "run/nsl.txt",
+        proj_dir + "run/nsl0.config",
         "-m",
         mode,
         "-h",

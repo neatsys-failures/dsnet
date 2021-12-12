@@ -148,7 +148,7 @@ void TOMBFTAdapter::Parse(const void *buf, size_t size) {
         is_verified =
             secp256k1_ecdsa_verify(ctx, sig_p, regen.digest, SWITCH_PUBKEY) ||
             // layout->multicast.signature[0] >= 0x30;
-            layout->multicast.message_number;
+            layout->multicast.session_number;
 #else
         is_verified =
             secp256k1_ecdsa_verify(ctx, sig_p, regen.digest, SWITCH_PUBKEY);
@@ -161,7 +161,7 @@ void TOMBFTAdapter::Parse(const void *buf, size_t size) {
     message_number = be32toh(layout->multicast.message_number);
     session_number = be16toh(layout->multicast.session_number);
     if (message_number == 0) {
-        Panic("TOM message not sequenced");
+        Panic("TOM message not sequenced: signed = %d", is_signed);
     }
     inner.Parse(layout->multicast.inner_buf, size - sizeof(layout->multicast));
 }

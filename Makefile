@@ -151,6 +151,7 @@ include sequencer/Rules.mk
 include bench/Rules.mk
 include tests/Rules.mk
 include nistore/Rules.mk
+include timeserver/Rules.mk
 
 ##################################################################
 # General rules

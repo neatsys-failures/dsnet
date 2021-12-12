@@ -13,7 +13,8 @@ namespace nistore {
 
 using namespace specpaxos;
 
-void Server::ReplicaUpcall(opnum_t opnum, const string &str1, string &str2) {
+void Server::ReplicaUpcall(
+    opnum_t opnum, const string &str1, string &str2, void *arg, void *ret) {
     Request request;
     Reply reply;
     int status;
@@ -255,26 +256,31 @@ int main(int argc, char **argv) {
         server = nistore::Server(true);
         replica = new dsnet::pbft::PBFTReplica(
             config, index, "Steve", 14, 34, &transport, &server);
+        break;
 
     case PROTO_MINBFT:
         server = nistore::Server(true);
         replica = new dsnet::minbft::MinBFTReplica(
             config, index, "Steve", 14, 34, &transport, &server);
+        break;
 
     case PROTO_HOTSTUFF:
         server = nistore::Server(true);
         replica = new dsnet::hotstuff::HotStuffReplica(
             config, index, "Steve", 14, 34, &transport, &server);
+        break;
 
     case PROTO_TOMBFT:
         server = nistore::Server(true);
         replica = new dsnet::tombft::TOMBFTReplica(
             config, index, "Steve", 14, &transport, &server);
+        break;
 
     case PROTO_TOMBFT_HMAC:
         server = nistore::Server(true);
         replica = new dsnet::tombft::TOMBFTHMACReplica(
             config, index, "Steve", 14, &transport, &server);
+        break;
 
     default:
         NOT_REACHABLE();

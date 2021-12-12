@@ -29,7 +29,7 @@ int main(int argc, char **argv) {
     nistore::Proto mode = nistore::PROTO_UNKNOWN;
 
     int opt;
-    while ((opt = getopt(argc, argv, "c:d:N:l:w:k:f:m:e:s:")) != -1) {
+    while ((opt = getopt(argc, argv, "c:d:N:l:w:k:f:m:e:s:h:")) != -1) {
         switch (opt) {
         case 'c': // Configuration path
         {

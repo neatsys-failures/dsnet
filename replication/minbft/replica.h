@@ -21,7 +21,7 @@ public:
 
 private:
     const std::string identifier;
-    CTPLRunner runner;
+    SpinRunner runner;
 
     // according to spec, all UI message (i.e. message that takes a UI) must be
     // handled in FIFO order

@@ -37,7 +37,9 @@ public:
     Server() { store = OCCStore(); };
     Server(bool locking) { locking ? store = LockStore() : OCCStore(); };
     ~Server(){};
-    void ReplicaUpcall(opnum_t opnum, const string &str1, string &str2);
+    void ReplicaUpcall(
+        opnum_t opnum, const string &str1, string &str2, void *arg = nullptr,
+        void *ret = nullptr) override;
     void RollbackUpcall(
         opnum_t current, opnum_t to, const std::map<opnum_t, string> &opMap);
     void CommitUpcall(opnum_t opnum);
