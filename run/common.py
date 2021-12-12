@@ -71,31 +71,23 @@ def setup(title):
             node[1].run(
                 [
                     "rsync",
-                    proj_dir + "bench/client",
-                    f"nsl-node{node_index}.d1:{proj_dir}/bench/client",
+                    "-r",
+                    proj_dir + "bench/",
+                    f"nsl-node{node_index}.d1:{proj_dir}/bench",
                 ]
             ),
             node[1].run(
                 [
                     "rsync",
-                    proj_dir + "bench/replica",
-                    f"nsl-node{node_index}.d1:{proj_dir}/bench/replica",
-                ]
-            ),
-            node[1].run(
-                [
-                    "rsync",
-                    proj_dir + "run/nsl.txt",
-                    f"nsl-node{node_index}.d1:{proj_dir}/run/nsl.txt",
+                    "-r",
+                    proj_dir + "run/",
+                    f"nsl-node{node_index}.d1:{proj_dir}/run",
                 ]
             ),
         ]
-    for task in rsync_tasks:
-        task.start()
-    for task in rsync_tasks:
-        task.wait()
+    pyrem.task.Parallel(rsync_tasks, aggregate=True).start(wait=True)
 
-    print("Start")
+    print("!! Start !!")
 
 
 def wait_replica(replica_task, i):

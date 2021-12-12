@@ -245,6 +245,10 @@ void TOMBFTHMACAdapter::Parse(const void *buf, size_t size) {
     is_verified = true; // anyway...
 
     if (!is_verified) {
+        const uint8_t *get = layout->multicast.hmac[replica_id];
+        Warning(
+            "expected: %02x %02x %02x %02x get: %02x %02x %02x %02x", //
+            out[0], out[1], out[2], out[3], get[0], get[1], get[2], get[3]);
         return;
     }
     message_number = be32toh(layout->multicast.message_number);

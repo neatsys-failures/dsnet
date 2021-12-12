@@ -20,7 +20,7 @@ for i in range(4):
 
 time.sleep(0.5)
 client_task = [
-    common.node[5].run(common.client_cmd(i, duration, "tombft", 40)) for i in range(10)
+    common.node[5].run(common.client_cmd(i, duration, "tombft", 6)) for i in range(10)
 ]
 pyrem.task.Parallel(client_task).start(wait=True)
 

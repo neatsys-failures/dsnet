@@ -161,21 +161,21 @@ void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
 
     // smartNIC simulator
 
-    static string nic_message;
-    if (nic_message.data() == buf) { // this is a nic message
-        nic_message.clear(); // to select next message as next nic message
-    } else if (nic_message.empty()) {
-        nic_message = string((const char *)buf, size);
-        char sig[] = "smartNIC";
-        nic_message.replace(16, sizeof(sig) - 1, sig);
-        // normally delay time is shorter than 1ms, but resolution limits
-        transport->Timer(1, [this, escaping_remote = remote.clone()]()
-        mutable {
-            auto remote = std::unique_ptr<TransportAddress>(escaping_remote);
-            ReceiveMessage(*remote, &nic_message.front(),
-            nic_message.size());
-        });
-    }
+    // static string nic_message;
+    // if (nic_message.data() == buf) { // this is a nic message
+    //     nic_message.clear(); // to select next message as next nic message
+    // } else if (nic_message.empty()) {
+    //     nic_message = string((const char *)buf, size);
+    //     char sig[] = "smartNIC";
+    //     nic_message.replace(16, sizeof(sig) - 1, sig);
+    //     // normally delay time is shorter than 1ms, but resolution limits
+    //     transport->Timer(1, [this, escaping_remote = remote.clone()]()
+    //     mutable {
+    //         auto remote = std::unique_ptr<TransportAddress>(escaping_remote);
+    //         ReceiveMessage(*remote, &nic_message.front(),
+    //         nic_message.size());
+    //     });
+    // }
 }
 
 class TOMBFTReplica : public TOMBFTReplicaCommon<TOMBFTAdapter> {
