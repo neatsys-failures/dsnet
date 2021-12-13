@@ -20,13 +20,19 @@ MinBFTReplica::MinBFTReplica(
     const Configuration &config, int replica_id, const std::string &identifier,
     int n_worker, int batch_size, Transport *transport, AppReplica *app)
     : Replica(config, 0, replica_id, true, transport, app),
-      identifier(identifier), runner(n_worker), commit_quorum(config.f + 1),
-      view_number(0), commit_number(0), log(false) //
+      identifier(identifier), runner(n_worker), batch_size(batch_size),
+      commit_quorum(config.f + 1), view_number(0), commit_number(0),
+      log(false) //
 {
     for (int i = 0; i < config.n; i += 1) {
         ui_queue[i] = map<opnum_t, Runner::Solo>();
         next_ui[i] = 1;
     }
+
+    close_batch_timeout =
+        unique_ptr<Timeout>(new Timeout(transport, 10, [this] {
+            runner.RunPrologue([this] { return [this] { CloseBatch(); }; });
+        }));
 }
 
 MinBFTReplica::~MinBFTReplica() {
@@ -78,24 +84,32 @@ void MinBFTReplica::ReceiveMessage(
                 Runner::Solo solo;
                 switch (ui_message.sub_case()) {
                 case proto::UIMessage::SubCase::kPrepare: {
-                    const string &buffer =
-                        ui_message.prepare().signed_request();
-                    Request request;
-                    PBMessage pb_request(request);
-                    SignedAdapter signed_request(pb_request, "");
-                    signed_request.Parse(buffer.data(), buffer.size());
-                    if (!signed_request.IsVerified()) {
-                        RWarning("Failed to verify UI::Prepare::Request");
-                        return nullptr;
+                    vector<Request> requests;
+                    for ( //
+                        int i = 0;
+                        i < ui_message.prepare().signed_request_size();
+                        i += 1 //
+                    ) {
+                        const string &buffer =
+                            ui_message.prepare().signed_request(i);
+                        Request request;
+                        PBMessage pb_request(request);
+                        SignedAdapter signed_request(pb_request, "");
+                        signed_request.Parse(buffer.data(), buffer.size());
+                        if (!signed_request.IsVerified()) {
+                            RWarning("Failed to verify UI::Prepare::Request");
+                            return nullptr;
+                        }
+                        requests.push_back(request);
                     }
                     solo = [ //
                                this, escaping_remote = remote.release(),
-                               ui_message, ui = minbft_layer.GetUI(), request] {
+                               ui_message, ui = minbft_layer.GetUI(),
+                               requests] {
                         auto remote =
                             unique_ptr<TransportAddress>(escaping_remote);
                         HandlePrepare(
-                            *remote, ui_message.prepare(), ui, request);
-                        // ConcludeEpilogue();
+                            *remote, ui_message.prepare(), ui, requests);
                     };
                     break;
                 }
@@ -106,7 +120,6 @@ void MinBFTReplica::ReceiveMessage(
                         auto remote =
                             unique_ptr<TransportAddress>(escaping_remote);
                         HandleCommit(*remote, ui_message.commit());
-                        // ConcludeEpilogue();
                     };
                     break;
                 }
@@ -155,7 +168,7 @@ void MinBFTReplica::ReceiveMessage(
 
 void MinBFTReplica::HandlePrepare(
     const TransportAddress &remote, const proto::Prepare &prepare, opnum_t ui,
-    const Request &request //
+    const vector<Request> &requests //
 ) {
     RDebug("Handle Prepare: ui = %lu", ui);
     if (prepare.view_number() < view_number) {
@@ -168,13 +181,13 @@ void MinBFTReplica::HandlePrepare(
         NOT_REACHABLE();
     }
 
-    while (log.LastOpnum() + 1 != ui) {
+    low_op[ui] = log.LastOpnum() + 1;
+    for (auto request : requests) {
         log.Append(new LogEntry(
-            viewstamp_t(view_number, log.LastOpnum() + 1), LOG_STATE_NOOP,
-            Request()));
+            viewstamp_t(view_number, log.LastOpnum()), LOG_STATE_PREPARED,
+            request));
     }
-    log.Append(new LogEntry(
-        viewstamp_t(view_number, ui), LOG_STATE_PREPARED, request));
+    high_op[ui] = log.LastOpnum();
 
     SendCommit(ui);
 }
@@ -220,18 +233,23 @@ void MinBFTReplica::AddCommit(const proto::Commit &commit) {
         return;
     }
 
-    LogEntry *entry = log.Find(commit.primary_ui());
-    if (entry == nullptr) {
+    if (!low_op.count(commit.primary_ui())) {
         NOT_IMPLEMENTED(); // state transfer
     }
-    entry->state = LOG_STATE_COMMITTED;
+    for ( //
+        opnum_t op_number = low_op[commit.primary_ui()];
+        op_number <= high_op[commit.primary_ui()]; op_number += 1 //
+    ) {
+        LogEntry *entry = log.Find(op_number);
+        entry->state = LOG_STATE_COMMITTED;
+    }
 
     // execution
     while (auto *commit_entry = log.Find(commit_number + 1)) {
-        if (commit_entry->state == LOG_STATE_NOOP) {
-            commit_number += 1;
-            continue;
-        }
+        // if (commit_entry->state == LOG_STATE_NOOP) {
+        //     commit_number += 1;
+        //     continue;
+        // }
         if (commit_entry->state != LOG_STATE_COMMITTED) {
             break;
         }
@@ -304,21 +322,35 @@ void MinBFTReplica::HandleRequest(
         return;
     }
 
-    MinBFTAdapter minbft_layer(nullptr, identifier, true);
-    while (log.LastOpnum() + 1 != minbft_layer.GetUI()) {
-        log.Append(new LogEntry(
-            viewstamp_t(view_number, log.LastOpnum() + 1), LOG_STATE_NOOP,
-            Request()));
-    }
     log.Append(new LogEntry(
-        viewstamp_t(view_number, minbft_layer.GetUI()), LOG_STATE_PREPARED,
+        viewstamp_t(view_number, log.LastOpnum() + 1), LOG_STATE_PREPARED,
         request));
+    request_batch.push_back(signed_request);
+
+    if (request_batch.size() >= batch_size) {
+        CloseBatch();
+    }
+
+    if (!close_batch_timeout->Active()) {
+        close_batch_timeout->Start();
+    }
+}
+
+void MinBFTReplica::CloseBatch() {
+    close_batch_timeout->Stop();
 
     proto::UIMessage ui_message;
     ui_message.set_replica_id(replicaIdx);
     auto &prepare = *ui_message.mutable_prepare();
     prepare.set_view_number(view_number);
-    prepare.set_signed_request(signed_request);
+    MinBFTAdapter minbft_layer(nullptr, identifier, true);
+
+    low_op[minbft_layer.GetUI()] = log.LastOpnum() - request_batch.size() + 1;
+    for (auto request : request_batch) {
+        prepare.add_signed_request(request);
+    }
+    high_op[minbft_layer.GetUI()] = log.LastOpnum();
+
     epilogue_list.push_back([this, ui_message, minbft_layer]() mutable {
         PBMessage pb_layer(ui_message);
         minbft_layer.SetInner(&pb_layer);

@@ -76,12 +76,18 @@ void TOMBFTReplicaBase::ExecuteOne(Request &request_message) {
         });
 }
 
+DEFINE_LATENCY(signed_delay);
+
 TOMBFTReplicaBase::~TOMBFTReplicaBase() {
     RNotice(
         "n_message = %d, n_signed_message = %d", n_message, n_signed_message);
     RNotice(
         "average batch size = %d", (n_message + 1) / (n_signed_message + 1));
+
+    Latency_Dump(&signed_delay);
 }
+
+static uint32_t measured_number = 0;
 
 void TOMBFTReplica::HandleRequest(
     TransportAddress &remote, Request &message, TOMBFTAdapter &meta //
@@ -118,6 +124,11 @@ void TOMBFTReplica::HandleRequest(
     tom_buffer[meta.MessageNumber()] = message;
 
     if (meta.IsSigned()) {
+        if (meta.MessageNumber() == measured_number) {
+            Latency_End(&signed_delay);
+            measured_number = 0;
+        }
+
         n_signed_message += 1;
         auto iter = tom_buffer.begin();
         while (iter != tom_buffer.end()) {
@@ -129,12 +140,18 @@ void TOMBFTReplica::HandleRequest(
                 RWarning(
                     "Gap: %lu (+%lu)", start_number + last_executed,
                     iter->first - (start_number + last_executed));
+                RWarning("Signed: %u", meta.MessageNumber());
                 NOT_IMPLEMENTED(); // state transfer
             }
             ExecuteOne(iter->second);
             iter = tom_buffer.erase(iter);
         }
         return;
+    }
+
+    if (measured_number == 0) {
+        Latency_Start(&signed_delay);
+        measured_number = meta.MessageNumber();
     }
 }
 

@@ -22,6 +22,12 @@ public:
 private:
     const std::string identifier;
     SpinRunner runner;
+    size_t batch_size;
+
+    std::vector<std::string> request_batch;
+    std::unique_ptr<Timeout> close_batch_timeout;
+    // ui -> log op mapping
+    std::unordered_map<opnum_t, opnum_t> low_op, high_op;
 
     // according to spec, all UI message (i.e. message that takes a UI) must be
     // handled in FIFO order
@@ -53,7 +59,7 @@ private:
 
     void HandlePrepare(
         const TransportAddress &remote, const proto::Prepare &prepare,
-        opnum_t ui, const Request &request);
+        opnum_t ui, const std::vector<Request> &requests);
     void
     HandleCommit(const TransportAddress &remote, const proto::Commit &commit);
     void HandleRequest(
@@ -62,6 +68,8 @@ private:
 
     void AddCommit(const proto::Commit &commit);
     void SendCommit(opnum_t ui);
+
+    void CloseBatch();
 };
 
 } // namespace minbft

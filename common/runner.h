@@ -42,6 +42,10 @@ class CTPLRunner : public Runner {
     std::mutex replica_mutex;
     Epilogue epilogue;
 
+protected:
+    int NWorker() { return pool.size(); }
+    std::thread &GetWorker(int i) { return pool.get_thread(i); }
+
 public:
     CTPLRunner(int n_worker) : pool(n_worker) {
         SetAffinity();
@@ -60,6 +64,10 @@ class CTPLOrderedRunner : public Runner {
     std::condition_variable cv;
     int prologue_id, last_task;
     Epilogue epilogue;
+
+protected:
+    int NWorker() { return pool.size(); }
+    std::thread &GetWorker(int i) { return pool.get_thread(i); }
 
 public:
     CTPLOrderedRunner(int n_worker) : pool(n_worker) {
@@ -125,6 +133,9 @@ protected:
     std::atomic<bool> slot_ready[N_SLOT_MAX];
     int next_prologue;
     std::atomic<int> next_solo;
+
+    int NWorker() { return n_worker; }
+    std::thread &GetWorker(int i) { return workers[i]; }
 
 public:
     SpinOrderedRunner(int n_worker);

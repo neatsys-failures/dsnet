@@ -42,6 +42,10 @@ message VoteMessage {
 
 message Block {
     uint64 op_number = 1;  // op number of first request in block
+    // this should be Signed[Request] to prevent leader forge client request
+    // currently all benchmark is set up with no client-side signature so the
+    // Signed[] layer is a no-op wrapper, so not make change to performance
+    // but still should be considered as a mistake
     repeated Request request = 2;
     QC justify = 3;
 }

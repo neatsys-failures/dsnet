@@ -22,4 +22,4 @@ client_task = [
 pyrem.task.Parallel(client_task).start(wait=True)
 
 common.wait_replica([replica_task], 0)
-common.wait_client(client_task)
+common.wait_client(client_task, 4 * 10)

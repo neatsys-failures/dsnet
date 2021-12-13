@@ -38,7 +38,7 @@ message Reply {
 
 message Prepare {
     uint64 view_number = 1;
-    bytes signed_request = 2;
+    repeated bytes signed_request = 2;
 }
 
 // if f + 1 replica agree on a `primary_ui` is valid (so Commit is sent), then

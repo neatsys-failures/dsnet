@@ -17,9 +17,7 @@ namespace tombft {
 #define RPanic(fmt, ...) Panic("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
 
 template <typename Layout> struct LayoutToRunner {};
-template <> struct LayoutToRunner<TOMBFTAdapter> {
-    using Runner = SpinRunner;
-};
+template <> struct LayoutToRunner<TOMBFTAdapter> { using Runner = CTPLRunner; };
 template <> struct LayoutToRunner<TOMBFTHMACAdapter> {
     using Runner = SpinOrderedRunner;
 };
@@ -63,8 +61,8 @@ public:
             Panic("Too many replicas");
         }
         BaseRunner::SetAffinity();
-        for (int i = 0; i < BaseRunner::n_worker; i += 1) {
-            BaseRunner::SetAffinity(BaseRunner::workers[i]);
+        for (int i = 0; i < BaseRunner::NWorker(); i += 1) {
+            BaseRunner::SetAffinity(BaseRunner::GetWorker(i));
         }
     }
 };

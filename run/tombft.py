@@ -28,10 +28,13 @@ def run(t, n_client):
     ]
     pyrem.task.Parallel(client_task).start(wait=True)
 
+    replica_alive = True
     for i in range(4):
         if not common.wait_replica(replica_task, i):
-            return False
+            replica_alive = False
+    if not replica_alive:
+        return False
     return common.wait_client(client_task, t * n_client)
 
 
-run(4, 10)
+run(28, 10)
