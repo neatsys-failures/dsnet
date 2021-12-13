@@ -10,6 +10,8 @@ message Message {
         ViewChange view_change = 3;
         ViewStart view_start = 4;
         EpochStart epoch_start = 5;
+        QueryMessage query = 6;
+        QueryReplyMessage query_reply = 7;
     }
 }
 
@@ -24,7 +26,9 @@ message QueryMessage {
     uint32 message_number = 2;
 }
 
-// QueryReply just send original Request
+message QueryReplyMessage {
+    bytes queried = 1;
+}
 
 message ViewChange {
     uint32 view_number = 1;

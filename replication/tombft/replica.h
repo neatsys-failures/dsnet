@@ -7,6 +7,7 @@
 #include "lib/transport.h"
 #include "replication/tombft/adapter.h"
 #include "replication/tombft/message.pb.h"
+#include <deque>
 
 namespace dsnet {
 namespace tombft {
@@ -76,7 +77,7 @@ protected:
 
     const string identifier;
 
-    int64_t offset;  // message number - log op number
+    int64_t offset; // message number - log op number
     uint64_t last_executed;
     sessnum_t session_number;
 
@@ -97,13 +98,26 @@ protected:
     void InsertEpochStart(const proto::EpochStart &epoch_start);
     std::unordered_map<int, proto::EpochStart> epoch_start_set;
 
+    void StartQuery(uint32_t message_number);
+    void HandleQueryMessage(
+        const TransportAddress &remote, const proto::QueryMessage &query);
+    std::unordered_map<uint32_t, std::string> query_buffer; // buffer for query
+
     std::map<uint32_t, Request> tom_buffer;
     void ExecuteOne(const Request &message); // insert into log by the way
 
     std::vector<Runner::Epilogue> epilogue_list;
 
     void StartEpochChange(sessnum_t next_session_number);
-    std::vector<Runner::Solo> epoch_change_buffer;
+
+    std::deque<Runner::Solo> solo_buffer;
+    void ResumeBuffered() { // should be able to handle recursive
+        while (!solo_buffer.empty() && status == STATUS_NORMAL) {
+            auto solo = solo_buffer.front();
+            solo_buffer.pop_front();
+            solo();
+        }
+    }
 };
 
 template <typename Layout>
@@ -162,9 +176,10 @@ void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
             switch (message.get_case()) {
             case proto::Message::GetCase::kRequest:
                 return [ //
-                           this, escaping_remote, message, tom] {
+                           this, escaping_remote, message, tom, owned_buffer] {
                     auto remote =
                         std::unique_ptr<TransportAddress>(escaping_remote);
+                    query_buffer.emplace(tom.MessageNumber(), owned_buffer);
                     HandleRequest(*remote, message.request(), tom);
                     ConcludeEpilogue();
                 };
@@ -183,6 +198,44 @@ void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
                     HandleViewStart(*remote, message.view_start());
                     ConcludeEpilogue();
                 };
+            case proto::Message::GetCase::kEpochStart:
+                return [this, escaping_remote, message] {
+                    auto remote =
+                        std::unique_ptr<TransportAddress>(escaping_remote);
+                    HandleEpochStart(*remote, message.epoch_start());
+                    ConcludeEpilogue();
+                };
+
+            case proto::Message::GetCase::kQuery:
+                return [this, escaping_remote, message] {
+                    auto remote =
+                        std::unique_ptr<TransportAddress>(escaping_remote);
+                    HandleQueryMessage(*remote, message.query());
+                    ConcludeEpilogue();
+                };
+            case proto::Message::GetCase::kQueryReply: {
+                proto::Message reply;
+                PBMessage pb_reply(reply);
+                SignedAdapter signed_reply(pb_reply, "");
+                Layout tom_reply(tom_reply, true, replicaIdx);
+                tom_reply.Parse(
+                    message.query_reply().queried().data(),
+                    message.query_reply().queried().size());
+                if (!tom_reply.IsVerified() || !signed_reply.IsVerified()) {
+                    RWarning("Failed to verify QueryReply");
+                    return nullptr;
+                }
+
+                return [ //
+                           this, escaping_remote, reply, tom_reply] {
+                    auto remote =
+                        std::unique_ptr<TransportAddress>(escaping_remote);
+                    status = STATUS_NORMAL;
+                    HandleRequest(*remote, reply.request(), tom_reply);
+                    ResumeBuffered();
+                    ConcludeEpilogue();
+                };
+            }
 
             default:
                 RPanic("Unexpected message case: %d", message.get_case());

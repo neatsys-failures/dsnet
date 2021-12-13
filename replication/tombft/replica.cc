@@ -23,8 +23,7 @@ TOMBFTReplicaBase::TOMBFTReplicaBase(
     const Configuration &config, int replica_index, const string &identifier,
     Transport *transport, AppReplica *app)
     : Replica(config, 0, replica_index, true, transport, app),
-      identifier(identifier), offset((uint32_t)-1), last_executed(0),
-      session_number(0), log(false) //
+      identifier(identifier), last_executed(0), session_number(0), log(false) //
 {
     transport->ListenOnMulticast(this, config);
     status = STATUS_NORMAL;
@@ -192,10 +191,41 @@ void TOMBFTReplicaBase::InsertEpochStart(const proto::EpochStart &epoch_start) {
     epoch_start_set.clear();
     session_number = epoch_start.session_number();
     offset = 0 - last_executed;
-    for (Runner::Solo solo : epoch_change_buffer) {
-        solo();
+
+    ResumeBuffered();
+}
+
+void TOMBFTReplicaBase::StartQuery(uint32_t message_number) {
+    status = STATUS_GAP_COMMIT;
+    epilogue_list.push_back([this, message_number] {
+        proto::Message m;
+        auto &query = *m.mutable_query();
+        query.set_replica_index(replicaIdx);
+        query.set_message_number(message_number);
+        PBMessage pb_layer(m);
+        SignedAdapter signed_layer(pb_layer, identifier, false);
+        TOMBFTHMACAdapter tom_layer(signed_layer, false, replicaIdx);
+        transport->SendMessageToAll(this, tom_layer);
+    });
+}
+
+void TOMBFTReplicaBase::HandleQueryMessage(
+    const TransportAddress &remote, const proto::QueryMessage &query //
+) {
+    if (!query_buffer.count(query.message_number())) {
+        return;
     }
-    epoch_change_buffer.clear();
+    epilogue_list.push_back([ //
+                                this, escaping_remote = remote.clone(),
+                                message_number = query.message_number()] {
+        auto remote = unique_ptr<TransportAddress>(escaping_remote);
+        proto::Message m;
+        m.mutable_query_reply()->set_queried(query_buffer[message_number]);
+        PBMessage pb_layer(m);
+        SignedAdapter signed_layer(pb_layer, identifier, false);
+        TOMBFTHMACAdapter tom_layer(signed_layer, false, replicaIdx);
+        transport->SendMessage(this, *remote, tom_layer);
+    });
 }
 
 static uint32_t measured_number = 0;
@@ -204,6 +234,17 @@ void TOMBFTReplica::HandleRequest(
     const TransportAddress &remote, const Request &message,
     const TOMBFTAdapter &meta //
 ) {
+    if (status != STATUS_NORMAL) {
+        solo_buffer.push_back(
+            [                                                         //
+                this, escaping_remote = remote.clone(), message, meta //
+        ] {
+                auto remote = unique_ptr<TransportAddress>(escaping_remote);
+                HandleRequest(*remote, message, meta);
+            });
+        return;
+    }
+
     if (!address_table[message.clientid()]) {
         address_table[message.clientid()] =
             unique_ptr<TransportAddress>(remote.clone());
@@ -212,22 +253,17 @@ void TOMBFTReplica::HandleRequest(
     // convinent hack
     if (session_number == 0) {
         session_number = meta.SessionNumber();
-    }
-    if (offset > meta.MessageNumber()) {
-        offset = meta.MessageNumber();
+        offset = meta.MessageNumber() - 1;
     }
     // RNotice(
     //     "message number = %u, is signed = %d", meta.MessageNumber(),
     //     meta.IsSigned());
 
     if (session_number != meta.SessionNumber()) {
-        // RWarning(
-        //     "Session changed: %u -> %u", session_number,
-        //     meta.SessionNumber());
         NOT_IMPLEMENTED();
     }
 
-    if (meta.MessageNumber() < offset + last_executed) {
+    if (meta.MessageNumber() <= offset + last_executed) {
         return; // either it is signed or not, it is useless
     }
 
@@ -249,12 +285,23 @@ void TOMBFTReplica::HandleRequest(
                 break;
             }
             // RNotice("executing %d", iter->first);
-            if (iter->first != offset + last_executed) {
+            if (iter->first != offset + last_executed + 1) {
                 RWarning(
-                    "Gap: %lu (+%lu)", offset + last_executed,
+                    "Gap: %lu (+%lu)", offset + last_executed + 1,
                     iter->first - (offset + last_executed));
                 RWarning("Signed: %u", meta.MessageNumber());
                 NOT_IMPLEMENTED(); // state transfer
+
+                solo_buffer.push_front(
+                    [                                                         //
+                        this, escaping_remote = remote.clone(), message, meta //
+                ] {
+                        auto remote =
+                            unique_ptr<TransportAddress>(escaping_remote);
+                        HandleRequest(*remote, message, meta);
+                    });
+                StartQuery(offset + last_executed + 1);
+                return;
             }
             ExecuteOne(iter->second);
             iter = tom_buffer.erase(iter);
@@ -273,7 +320,7 @@ void TOMBFTHMACReplica::HandleRequest(
     const TOMBFTHMACAdapter &meta //
 ) {
     if (status != STATUS_NORMAL) {
-        epoch_change_buffer.push_back(
+        solo_buffer.push_back(
             [                                                         //
                 this, escaping_remote = remote.clone(), message, meta //
         ] {
@@ -300,7 +347,7 @@ void TOMBFTHMACReplica::HandleRequest(
     if (session_number != meta.SessionNumber()) {
         RWarning(
             "Session changed: %lu -> %u", session_number, meta.SessionNumber());
-        epoch_change_buffer.push_back(
+        solo_buffer.push_front(
             [                                                         //
                 this, escaping_remote = remote.clone(), message, meta //
         ] {
@@ -321,6 +368,16 @@ void TOMBFTHMACReplica::HandleRequest(
             "Gap: %lu (+%lu)", offset + last_executed + 1,
             meta.MessageNumber() - (offset + last_executed));
         NOT_IMPLEMENTED(); // state transfer
+
+        solo_buffer.push_front(
+            [                                                         //
+                this, escaping_remote = remote.clone(), message, meta //
+        ] {
+                auto remote = unique_ptr<TransportAddress>(escaping_remote);
+                HandleRequest(*remote, message, meta);
+            });
+        StartQuery(offset + last_executed + 1);
+        return;
     }
 
     ExecuteOne(message);
