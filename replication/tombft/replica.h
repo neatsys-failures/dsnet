@@ -78,7 +78,7 @@ protected:
 
     uint32_t start_number;
     uint64_t last_executed;
-    uint8_t session_number;
+    sessnum_t session_number;
 
     Log log;
     std::unordered_map<uint64_t, proto::ReplyMessage> client_table;
@@ -86,9 +86,12 @@ protected:
         address_table;
 
     std::map<uint32_t, Request> tom_buffer;
-    void ExecuteOne(Request &message); // insert into log by the way
+    void ExecuteOne(const Request &message); // insert into log by the way
 
     std::vector<Runner::Epilogue> epilogue_list;
+
+    void StartEpochChange(sessnum_t next_session_number);
+    std::vector<Runner::Solo> epoch_change_buffer;
 };
 
 template <typename Layout>
@@ -107,8 +110,9 @@ public:
 protected:
     TOMBFTRunner<typename LayoutToRunner<Layout>::Runner> runner;
 
-    virtual void
-    HandleRequest(TransportAddress &remote, Request &message, Layout &meta) = 0;
+    virtual void HandleRequest(
+        const TransportAddress &remote, const Request &message,
+        const Layout &meta) = 0;
 
     void ConcludeEpilogue() {
         if (epilogue_list.empty()) {
@@ -180,8 +184,8 @@ void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
 
 class TOMBFTReplica : public TOMBFTReplicaCommon<TOMBFTAdapter> {
     void HandleRequest(
-        TransportAddress &remote, Request &message,
-        TOMBFTAdapter &meta) override;
+        const TransportAddress &remote, const Request &message,
+        const TOMBFTAdapter &meta) override;
 
 public:
     TOMBFTReplica(
@@ -195,8 +199,8 @@ public:
 
 class TOMBFTHMACReplica : public TOMBFTReplicaCommon<TOMBFTHMACAdapter> {
     void HandleRequest(
-        TransportAddress &remote, Request &message,
-        TOMBFTHMACAdapter &meta) override;
+        const TransportAddress &remote, const Request &message,
+        const TOMBFTHMACAdapter &meta) override;
 
 public:
     TOMBFTHMACReplica(

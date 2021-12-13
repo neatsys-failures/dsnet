@@ -27,9 +27,10 @@ TOMBFTReplicaBase::TOMBFTReplicaBase(
       session_number(0), log(false) //
 {
     transport->ListenOnMulticast(this, config);
+    status = STATUS_NORMAL;
 }
 
-void TOMBFTReplicaBase::ExecuteOne(Request &request_message) {
+void TOMBFTReplicaBase::ExecuteOne(const Request &request_message) {
     last_executed += 1;
     // TODO
     log.Append(new LogEntry(
@@ -87,10 +88,28 @@ TOMBFTReplicaBase::~TOMBFTReplicaBase() {
     Latency_Dump(&signed_delay);
 }
 
+void TOMBFTReplicaBase::StartEpochChange(sessnum_t next_session_number) {
+    status = STATUS_EPOCH_CHANGE;
+
+    proto::Message message;
+    auto &view_change = *message.mutable_view_change();
+    view_change.set_view_number(session_number);
+    view_change.set_next_view_number(next_session_number);
+    view_change.set_high_message_number(last_executed);
+    epilogue_list.push_back([this, message]() mutable {
+        PBMessage pb_layer(message);
+        SignedAdapter signed_layer(pb_layer, identifier);
+        // this is bad, should generalize
+        TOMBFTHMACAdapter tom_layer(signed_layer, false, replicaIdx);
+        transport->SendMessageToAll(this, tom_layer);
+    });
+}
+
 static uint32_t measured_number = 0;
 
 void TOMBFTReplica::HandleRequest(
-    TransportAddress &remote, Request &message, TOMBFTAdapter &meta //
+    const TransportAddress &remote, const Request &message,
+    const TOMBFTAdapter &meta //
 ) {
     if (!address_table[message.clientid()]) {
         address_table[message.clientid()] =
@@ -109,8 +128,8 @@ void TOMBFTReplica::HandleRequest(
     //     meta.IsSigned());
 
     if (session_number != meta.SessionNumber()) {
-        RWarning(
-            "Session changed: %u -> %u", session_number, meta.SessionNumber());
+        // RWarning(
+        //     "Session changed: %u -> %u", session_number, meta.SessionNumber());
         NOT_IMPLEMENTED();
     }
 
@@ -156,8 +175,20 @@ void TOMBFTReplica::HandleRequest(
 }
 
 void TOMBFTHMACReplica::HandleRequest(
-    TransportAddress &remote, Request &message, TOMBFTHMACAdapter &meta //
+    const TransportAddress &remote, const Request &message,
+    const TOMBFTHMACAdapter &meta //
 ) {
+    if (status != STATUS_NORMAL) {
+        epoch_change_buffer.push_back(
+            [                                                         //
+                this, escaping_remote = remote.clone(), message, meta //
+        ] {
+                auto remote = unique_ptr<TransportAddress>(escaping_remote);
+                HandleRequest(*remote, message, meta);
+            });
+        return;
+    }
+
     if (!address_table[message.clientid()]) {
         address_table[message.clientid()] =
             unique_ptr<TransportAddress>(remote.clone());
@@ -176,8 +207,17 @@ void TOMBFTHMACReplica::HandleRequest(
 
     if (session_number != meta.SessionNumber()) {
         RWarning(
-            "Session changed: %u -> %u", session_number, meta.SessionNumber());
-        NOT_IMPLEMENTED();
+            "Session changed: %lu -> %u", session_number,
+            meta.SessionNumber());
+        epoch_change_buffer.push_back(
+            [                                                         //
+                this, escaping_remote = remote.clone(), message, meta //
+        ] {
+                auto remote = unique_ptr<TransportAddress>(escaping_remote);
+                HandleRequest(*remote, message, meta);
+            });
+        StartEpochChange(meta.SessionNumber());
+        return;
     }
 
     if (meta.MessageNumber() < start_number + last_executed) {

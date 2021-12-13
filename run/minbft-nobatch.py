@@ -14,7 +14,7 @@ duration = 10
 def run(t, n_client):
     replica_task = [
         common.node[i + 1].run(
-            common.replica_cmd(i, duration, "minbft", n_worker=14, batch_size=30),
+            common.replica_cmd(i, duration, "minbft", n_worker=14),
             return_output=True,
         )
         for i in range(3)
@@ -44,9 +44,6 @@ for t, n_client in [
     (6, 10),
     (8, 10),
     (16, 10),
-    (32, 10),
-    (64, 10),
-    (96, 10),
 ]:
     while not run(t, n_client):
         pass

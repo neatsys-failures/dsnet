@@ -1,6 +1,7 @@
 #include "replication/minbft/replica.h"
 #include "common/pbmessage.h"
 #include "replication/minbft/adapter.h"
+#include <cstdlib>
 
 #define RDebug(fmt, ...) Debug("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
 #define RNotice(fmt, ...) Notice("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
@@ -33,6 +34,8 @@ MinBFTReplica::MinBFTReplica(
         unique_ptr<Timeout>(new Timeout(transport, 10, [this] {
             runner.RunPrologue([this] { return [this] { CloseBatch(); }; });
         }));
+
+    // setenv("DEBUG", "replica.cc", 1);
 }
 
 MinBFTReplica::~MinBFTReplica() {
@@ -184,7 +187,7 @@ void MinBFTReplica::HandlePrepare(
     low_op[ui] = log.LastOpnum() + 1;
     for (auto request : requests) {
         log.Append(new LogEntry(
-            viewstamp_t(view_number, log.LastOpnum()), LOG_STATE_PREPARED,
+            viewstamp_t(view_number, log.LastOpnum() + 1), LOG_STATE_PREPARED,
             request));
     }
     high_op[ui] = log.LastOpnum();
@@ -220,7 +223,18 @@ void MinBFTReplica::SendCommit(opnum_t ui) {
 void MinBFTReplica::HandleCommit(
     const TransportAddress &remote, const proto::Commit &commit //
 ) {
-    if (commit.primary_ui() <= commit_number) {
+    RDebug(
+        "HandleCommit: primary ui = %lu, commit_number = %lu",
+        commit.primary_ui(), commit_number);
+    if (high_op.count(commit.primary_ui())) {
+        RDebug(
+            "op number = %lu .. %lu", low_op[commit.primary_ui()],
+            high_op[commit.primary_ui()]);
+    }
+    if ( //
+        high_op.count(commit.primary_ui()) &&
+        high_op[commit.primary_ui()] <= commit_number //
+    ) {
         // TODO resend for slow replica
         return;
     }
@@ -228,10 +242,12 @@ void MinBFTReplica::HandleCommit(
 }
 
 void MinBFTReplica::AddCommit(const proto::Commit &commit) {
+    RDebug("AddCommit: primary ui = %lu", commit.primary_ui());
     if (!commit_quorum.AddAndCheckForQuorum(
             commit.primary_ui(), commit.replica_id(), commit)) {
         return;
     }
+    RDebug("Reach commit point: primary ui = %lu", commit.primary_ui());
 
     if (!low_op.count(commit.primary_ui())) {
         NOT_IMPLEMENTED(); // state transfer
@@ -327,12 +343,11 @@ void MinBFTReplica::HandleRequest(
         request));
     request_batch.push_back(signed_request);
 
-    if (request_batch.size() >= batch_size) {
-        CloseBatch();
-    }
-
     if (!close_batch_timeout->Active()) {
         close_batch_timeout->Start();
+    }
+    if (request_batch.size() >= batch_size) {
+        CloseBatch();
     }
 }
 
@@ -350,6 +365,7 @@ void MinBFTReplica::CloseBatch() {
         prepare.add_signed_request(request);
     }
     high_op[minbft_layer.GetUI()] = log.LastOpnum();
+    request_batch.clear();
 
     epilogue_list.push_back([this, ui_message, minbft_layer]() mutable {
         PBMessage pb_layer(ui_message);
