@@ -66,8 +66,10 @@ protected:
     const string identifier;
 
     int64_t offset; // message number - log op number
-    uint64_t last_executed;
+    uint64_t last_executed, high_verified;
     sessnum_t session_number;
+
+    std::unique_ptr<Timeout> query_timeout;
 
     Log log;
     std::unordered_map<uint64_t, proto::ReplyMessage> client_table;
@@ -87,26 +89,31 @@ protected:
     std::unordered_map<int, proto::EpochStart> epoch_start_set;
 
     void StartQuery(uint32_t message_number);
-    uint32_t queried_message_number;
+    uint32_t queried_message_number, next_query_number;
     void HandleQueryMessage(
         const TransportAddress &remote, const proto::QueryMessage &query);
     std::unordered_map<uint32_t, std::string> query_buffer; // buffer for query
 
+    // TODO should buffer for multiple view/session?
     std::map<uint32_t, Request> tom_buffer;
     void ExecuteOne(const Request &message); // insert into log by the way
+    void TryExecute();
 
     std::vector<Runner::Epilogue> epilogue_list;
-
+    void ConcludeEpilogue() {
+        if (epilogue_list.empty()) {
+            return;
+        }
+        GetRunner().RunEpilogue([runner_list = epilogue_list] {
+            for (Runner::Epilogue epilogue : runner_list) {
+                epilogue();
+            }
+        });
+        epilogue_list.clear();
+    }
     void StartEpochChange(sessnum_t next_session_number);
 
-    std::deque<Runner::Solo> solo_buffer;
-    void ResumeBuffered() { // should be able to handle recursive
-        while (!solo_buffer.empty() && status == STATUS_NORMAL) {
-            auto solo = solo_buffer.front();
-            solo_buffer.pop_front();
-            solo();
-        }
-    }
+    virtual Runner &GetRunner() = 0;
 };
 
 template <typename Layout>
@@ -124,22 +131,11 @@ public:
 
 protected:
     TOMBFTRunner<typename LayoutToRunner<Layout>::Runner> runner;
+    Runner &GetRunner() override { return runner; }
 
     virtual void HandleRequest(
         const TransportAddress &remote, const Request &message,
         const Layout &meta) = 0;
-
-    void ConcludeEpilogue() {
-        if (epilogue_list.empty()) {
-            return;
-        }
-        runner.RunEpilogue([runner_list = epilogue_list] {
-            for (Runner::Epilogue epilogue : runner_list) {
-                epilogue();
-            }
-        });
-        epilogue_list.clear();
-    }
 };
 
 template <typename Layout>
@@ -202,37 +198,38 @@ void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
                     HandleQueryMessage(*remote, message.query());
                     ConcludeEpilogue();
                 };
-            case proto::Message::GetCase::kQueryReply: {
-                if (status != STATUS_GAP_COMMIT) {
-                    return nullptr;
-                }
-                if ( //
-                    message.query_reply().message_number() !=
-                    queried_message_number) {
-                    return nullptr;
-                }
-                proto::Message reply;
-                PBMessage pb_reply(reply);
-                SignedAdapter signed_reply(pb_reply, "");
-                Layout tom_reply(tom_reply, true, replicaIdx);
-                tom_reply.Parse(
-                    message.query_reply().queried().data(),
-                    message.query_reply().queried().size());
-                if (!tom_reply.IsVerified() || !signed_reply.IsVerified()) {
-                    RWarning("Failed to verify QueryReply");
-                    return nullptr;
-                }
+                // case proto::Message::GetCase::kQueryReply: {
+                //     if (status != STATUS_GAP_COMMIT) {
+                //         return nullptr;
+                //     }
+                //     if ( //
+                //         message.query_reply().message_number() !=
+                //         queried_message_number) {
+                //         return nullptr;
+                //     }
+                //     proto::Message reply;
+                //     PBMessage pb_reply(reply);
+                //     SignedAdapter signed_reply(pb_reply, "");
+                //     Layout tom_reply(tom_reply, true, replicaIdx);
+                //     tom_reply.Parse(
+                //         message.query_reply().queried().data(),
+                //         message.query_reply().queried().size());
+                //     if (!tom_reply.IsVerified() ||
+                //     !signed_reply.IsVerified()) {
+                //         RWarning("Failed to verify QueryReply");
+                //         return nullptr;
+                //     }
 
-                return [ //
-                           this, escaping_remote, reply, tom_reply] {
-                    auto remote =
-                        std::unique_ptr<TransportAddress>(escaping_remote);
-                    status = STATUS_NORMAL;
-                    HandleRequest(*remote, reply.request(), tom_reply);
-                    ResumeBuffered();
-                    ConcludeEpilogue();
-                };
-            }
+                //     return [ //
+                //                this, escaping_remote, reply, tom_reply] {
+                //         auto remote =
+                //             std::unique_ptr<TransportAddress>(escaping_remote);
+                //         status = STATUS_NORMAL;
+                //         HandleRequest(*remote, reply.request(), tom_reply);
+                //         ResumeBuffered();
+                //         ConcludeEpilogue();
+                //     };
+                // }
 
             default:
                 RPanic("Unexpected message case: %d", message.get_case());
@@ -272,7 +269,9 @@ public:
         AppReplica *app)
         : TOMBFTReplicaCommon<TOMBFTAdapter>(
               config, replica_index, identifier, worker_thread_count, transport,
-              app) {}
+              app) {
+        high_verified = 0;
+    }
 };
 
 class TOMBFTHMACReplica : public TOMBFTReplicaCommon<TOMBFTHMACAdapter> {
@@ -287,7 +286,10 @@ public:
         AppReplica *app)
         : TOMBFTReplicaCommon<TOMBFTHMACAdapter>(
               config, replica_index, identifier, worker_thread_count, transport,
-              app) {}
+              app) {
+        high_verified =
+            UINT64_MAX; // all TOMBFT-HMAC messages are self verified
+    }
 };
 
 #undef RPanic

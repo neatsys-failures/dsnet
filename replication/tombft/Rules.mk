@@ -15,7 +15,7 @@ OBJS-tombft-replica := $(o)replica.o $(o)adapter.o $(o)message.o \
                $(o)halfsiphash.o \
                $(OBJS-replica) $(LIB-message) \
                $(LIB-configuration) $(LIB-pbmessage) $(LIB-signedadapter) \
-               $(LIB-runner) $(LIB-latency)
+               $(LIB-runner) $(LIB-latency) .obj/sequencer/sequencer.o  # hack for reusing BufferMessage
 
 $(o)client.o $(o)replica.o: $(o)message.o
 

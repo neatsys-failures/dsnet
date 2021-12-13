@@ -11,7 +11,7 @@ message Message {
         ViewStart view_start = 4;
         EpochStart epoch_start = 5;
         QueryMessage query = 6;
-        QueryReplyMessage query_reply = 7;
+        // QueryReplyMessage query_reply = 7;
     }
 }
 
@@ -26,10 +26,11 @@ message QueryMessage {
     uint32 message_number = 2;
 }
 
-message QueryReplyMessage {
-    uint32 message_number = 1;
-    bytes queried = 2;
-}
+// Just send original TOMBFT[Signed[Request]] as query reply
+// message QueryReplyMessage {
+//     uint32 message_number = 1;
+//     bytes queried = 2;
+// }
 
 message ViewChange {
     uint32 view_number = 1;

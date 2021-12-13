@@ -4,6 +4,7 @@
 #include "common/signedadapter.h"
 #include "lib/latency.h"
 #include "lib/message.h"
+#include "sequencer/sequencer.h"
 
 #define RDebug(fmt, ...) Debug("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
 #define RNotice(fmt, ...) Notice("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
@@ -27,6 +28,13 @@ TOMBFTReplicaBase::TOMBFTReplicaBase(
 {
     transport->ListenOnMulticast(this, config);
     status = STATUS_NORMAL;
+
+    query_timeout = unique_ptr<Timeout>(new Timeout(transport, 10, [this] {
+        GetRunner().RunPrologue(
+            [this] { return [this] { StartQuery(next_query_number); }; });
+    }));
+    queried_message_number = 0;
+    next_query_number = 0;
 }
 
 void TOMBFTReplicaBase::ExecuteOne(const Request &request_message) {
@@ -76,6 +84,28 @@ void TOMBFTReplicaBase::ExecuteOne(const Request &request_message) {
         });
 }
 
+void TOMBFTReplicaBase::TryExecute() {
+    auto iter = tom_buffer.begin();
+    while (iter != tom_buffer.end()) {
+        if (iter->first != last_executed + offset + 1) {
+            if (next_query_number != last_executed + offset + 1) {
+                next_query_number = last_executed + offset + 1;
+                query_timeout->Start();
+            }
+            break;
+        }
+        if (iter->first > high_verified) {
+            break;
+        }
+        ExecuteOne(iter->second);
+        iter = tom_buffer.erase(iter);
+    }
+
+    if (last_executed + offset >= next_query_number) {
+        query_timeout->Stop();
+    }
+}
+
 DEFINE_LATENCY(signed_delay);
 
 TOMBFTReplicaBase::~TOMBFTReplicaBase() {
@@ -89,6 +119,11 @@ TOMBFTReplicaBase::~TOMBFTReplicaBase() {
 
 void TOMBFTReplicaBase::StartEpochChange(sessnum_t next_session_number) {
     status = STATUS_EPOCH_CHANGE;
+    RNotice(
+        "Start epoch change: %lu -> %lu", session_number, next_session_number);
+
+    // assume that old session long gone, all gap resolved, etc
+    tom_buffer.clear();
 
     proto::Message message;
     auto &view_change = *message.mutable_view_change();
@@ -126,6 +161,8 @@ void TOMBFTReplicaBase::InsertViewChange(const proto::ViewChange &view_change) {
         return;
     }
 
+    RNotice("Start view: session number = %u", view_change.view_number());
+
     // on fast path, assume everyone has even high message number
     // no message sync in ViewStart
 
@@ -152,10 +189,14 @@ void TOMBFTReplicaBase::HandleViewStart(
     }
 
     // assume identical log, skip log install
+    RNotice("Start view: session number = %u", view_start.view_number());
+
     SendEpochStart(view_start.view_number());
 }
 
 void TOMBFTReplicaBase::SendEpochStart(sessnum_t session_number) {
+    RNotice("Send epoch start: session number = %lu", session_number);
+
     proto::Message message;
     auto &epoch_start = *message.mutable_epoch_start();
     epoch_start.set_session_number(session_number);
@@ -186,17 +227,22 @@ void TOMBFTReplicaBase::InsertEpochStart(const proto::EpochStart &epoch_start) {
         return;
     }
 
+    RNotice("Epoch start: session number = %u", epoch_start.session_number());
+
     status = STATUS_NORMAL;
     view_change_set.clear();
     epoch_start_set.clear();
     session_number = epoch_start.session_number();
     offset = 0 - last_executed;
 
-    ResumeBuffered();
+    TryExecute();
 }
 
 void TOMBFTReplicaBase::StartQuery(uint32_t message_number) {
-    status = STATUS_GAP_COMMIT;
+    if (queried_message_number == message_number) {
+        return; // TODO resend
+    }
+    RWarning("Send Query: message number = %u", message_number);
     queried_message_number = message_number;
     epilogue_list.push_back([this, message_number] {
         proto::Message m;
@@ -220,12 +266,9 @@ void TOMBFTReplicaBase::HandleQueryMessage(
                                 this, escaping_remote = remote.clone(),
                                 message_number = query.message_number()] {
         auto remote = unique_ptr<TransportAddress>(escaping_remote);
-        proto::Message m;
-        m.mutable_query_reply()->set_queried(query_buffer[message_number]);
-        PBMessage pb_layer(m);
-        SignedAdapter signed_layer(pb_layer, identifier, false);
-        TOMBFTHMACAdapter tom_layer(signed_layer, false, replicaIdx);
-        transport->SendMessage(this, *remote, tom_layer);
+        const auto &message = query_buffer[message_number];
+        transport->SendMessage(
+            this, *remote, BufferMessage(message.data(), message.size()));
     });
 }
 
@@ -236,13 +279,7 @@ void TOMBFTReplica::HandleRequest(
     const TOMBFTAdapter &meta //
 ) {
     if (status != STATUS_NORMAL) {
-        solo_buffer.push_back(
-            [                                                         //
-                this, escaping_remote = remote.clone(), message, meta //
-        ] {
-                auto remote = unique_ptr<TransportAddress>(escaping_remote);
-                HandleRequest(*remote, message, meta);
-            });
+        tom_buffer.emplace(meta.MessageNumber(), message);
         return;
     }
 
@@ -251,7 +288,7 @@ void TOMBFTReplica::HandleRequest(
             unique_ptr<TransportAddress>(remote.clone());
     }
 
-    // convinent hack
+    // convinent hack on the very first packet
     if (session_number == 0) {
         session_number = meta.SessionNumber();
         offset = meta.MessageNumber() - 1;
@@ -273,48 +310,10 @@ void TOMBFTReplica::HandleRequest(
     // RNotice("buffering %d", meta.MessageNumber());
     tom_buffer[meta.MessageNumber()] = message;
 
-    if (meta.IsSigned()) {
-        if (meta.MessageNumber() == measured_number) {
-            Latency_End(&signed_delay);
-            measured_number = 0;
-        }
-
-        n_signed_message += 1;
-        auto iter = tom_buffer.begin();
-        while (iter != tom_buffer.end()) {
-            if (iter->first > meta.MessageNumber()) {
-                break;
-            }
-            // RNotice("executing %d", iter->first);
-            if (iter->first != offset + last_executed + 1) {
-
-                // a small hack that help stablize system
-                if (iter->first - (offset + last_executed) < 10) {
-                    return;
-                }
-
-                RWarning(
-                    "Gap: %lu (+%lu)", offset + last_executed + 1,
-                    iter->first - (offset + last_executed));
-                RWarning("Signed: %u", meta.MessageNumber());
-                NOT_IMPLEMENTED(); // state transfer
-
-                solo_buffer.push_front(
-                    [                                                         //
-                        this, escaping_remote = remote.clone(), message, meta //
-                ] {
-                        auto remote =
-                            unique_ptr<TransportAddress>(escaping_remote);
-                        HandleRequest(*remote, message, meta);
-                    });
-                StartQuery(offset + last_executed + 1);
-                return;
-            }
-            ExecuteOne(iter->second);
-            iter = tom_buffer.erase(iter);
-        }
-        return;
+    if (meta.IsSigned() && meta.MessageNumber() > high_verified) {
+        high_verified = meta.MessageNumber();
     }
+    TryExecute();
 
     if (measured_number == 0) {
         Latency_Start(&signed_delay);
@@ -327,13 +326,7 @@ void TOMBFTHMACReplica::HandleRequest(
     const TOMBFTHMACAdapter &meta //
 ) {
     if (status != STATUS_NORMAL) {
-        solo_buffer.push_back(
-            [                                                         //
-                this, escaping_remote = remote.clone(), message, meta //
-        ] {
-                auto remote = unique_ptr<TransportAddress>(escaping_remote);
-                HandleRequest(*remote, message, meta);
-            });
+        tom_buffer.emplace(meta.MessageNumber(), message);
         return;
     }
 
@@ -342,7 +335,7 @@ void TOMBFTHMACReplica::HandleRequest(
             unique_ptr<TransportAddress>(remote.clone());
     }
 
-    // convinent hack
+    // convinent hack for the very first packet
     if (session_number == 0) {
         session_number = meta.SessionNumber();
         offset = meta.MessageNumber() - 1;
@@ -354,14 +347,11 @@ void TOMBFTHMACReplica::HandleRequest(
     if (session_number != meta.SessionNumber()) {
         RWarning(
             "Session changed: %lu -> %u", session_number, meta.SessionNumber());
-        solo_buffer.push_front(
-            [                                                         //
-                this, escaping_remote = remote.clone(), message, meta //
-        ] {
-                auto remote = unique_ptr<TransportAddress>(escaping_remote);
-                HandleRequest(*remote, message, meta);
-            });
+
         StartEpochChange(meta.SessionNumber());
+        // insert message after start epoch change, because buffer get cleared
+        // inside that
+        tom_buffer.emplace(meta.MessageNumber(), message);
         return;
     }
 
@@ -371,23 +361,14 @@ void TOMBFTHMACReplica::HandleRequest(
 
     n_message += 1;
     if (meta.MessageNumber() != offset + last_executed + 1) {
-        RWarning(
-            "Gap: %lu (+%lu)", offset + last_executed + 1,
-            meta.MessageNumber() - (offset + last_executed));
-        NOT_IMPLEMENTED(); // state transfer
-
-        solo_buffer.push_front(
-            [                                                         //
-                this, escaping_remote = remote.clone(), message, meta //
-        ] {
-                auto remote = unique_ptr<TransportAddress>(escaping_remote);
-                HandleRequest(*remote, message, meta);
-            });
-        StartQuery(offset + last_executed + 1);
-        return;
+        // RWarning(
+        //     "Gap: %lu (+%lu)", offset + last_executed + 1,
+        //     meta.MessageNumber() - (offset + last_executed));
+        tom_buffer.emplace(meta.MessageNumber(), message);
+    } else {
+        ExecuteOne(message);
     }
-
-    ExecuteOne(message);
+    TryExecute();
 }
 
 } // namespace tombft
