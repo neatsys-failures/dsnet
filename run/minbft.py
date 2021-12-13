@@ -34,12 +34,8 @@ def run(t, n_client):
             return False
     return common.wait_client(client_task, t * n_client)
 
+
 for t, n_client in [
-    (1, 1),
-    (1, 2),
-    (1, 5),
-    (1, 10),
-    (2, 10),
     (4, 10),
     (6, 10),
     (8, 10),

@@ -206,17 +206,17 @@ void MinBFTReplica::SendCommit(opnum_t ui) {
     MinBFTAdapter minbft_layer(nullptr, identifier, true);
     RDebug("Allocate UI = %lu", minbft_layer.GetUI());
 
-    epilogue_list.push_back([this, ui_message, minbft_layer]() mutable {
-        PBMessage pb_layer(ui_message);
-        minbft_layer.SetInner(&pb_layer);
-        string ui_buffer;
-        ui_buffer.resize(minbft_layer.SerializedSize());
-        minbft_layer.Serialize(&ui_buffer.front());
-        proto::MinBFTMessage m;
-        *m.mutable_ui_message() = ui_buffer;
-        RDebug("Send Commit: ui = %lu", minbft_layer.GetUI());
-        transport->SendMessageToAll(this, PBMessage(m));
-    });
+    // epilogue_list.push_back([this, ui_message, minbft_layer]() mutable {
+    PBMessage pb_layer(ui_message);
+    minbft_layer.SetInner(&pb_layer);
+    string ui_buffer;
+    ui_buffer.resize(minbft_layer.SerializedSize());
+    minbft_layer.Serialize(&ui_buffer.front());
+    proto::MinBFTMessage m;
+    *m.mutable_ui_message() = ui_buffer;
+    RDebug("Send Commit: ui = %lu", minbft_layer.GetUI());
+    transport->SendMessageToAll(this, PBMessage(m));
+    // });
     AddCommit(commit);
 }
 
@@ -367,16 +367,16 @@ void MinBFTReplica::CloseBatch() {
     high_op[minbft_layer.GetUI()] = log.LastOpnum();
     request_batch.clear();
 
-    epilogue_list.push_back([this, ui_message, minbft_layer]() mutable {
-        PBMessage pb_layer(ui_message);
-        minbft_layer.SetInner(&pb_layer);
-        string buffer;
-        buffer.resize(minbft_layer.SerializedSize());
-        minbft_layer.Serialize(&buffer.front());
-        proto::MinBFTMessage m;
-        *m.mutable_ui_message() = buffer;
-        transport->SendMessageToAll(this, PBMessage(m));
-    });
+    // epilogue_list.push_back([this, ui_message, minbft_layer]() mutable {
+    PBMessage pb_layer(ui_message);
+    minbft_layer.SetInner(&pb_layer);
+    string buffer;
+    buffer.resize(minbft_layer.SerializedSize());
+    minbft_layer.Serialize(&buffer.front());
+    proto::MinBFTMessage m;
+    *m.mutable_ui_message() = buffer;
+    transport->SendMessageToAll(this, PBMessage(m));
+    // });
     SendCommit(minbft_layer.GetUI());
 }
 

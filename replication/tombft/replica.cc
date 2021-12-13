@@ -23,7 +23,7 @@ TOMBFTReplicaBase::TOMBFTReplicaBase(
     const Configuration &config, int replica_index, const string &identifier,
     Transport *transport, AppReplica *app)
     : Replica(config, 0, replica_index, true, transport, app),
-      identifier(identifier), start_number((uint32_t)-1), last_executed(0),
+      identifier(identifier), offset((uint32_t)-1), last_executed(0),
       session_number(0), log(false) //
 {
     transport->ListenOnMulticast(this, config);
@@ -96,13 +96,106 @@ void TOMBFTReplicaBase::StartEpochChange(sessnum_t next_session_number) {
     view_change.set_view_number(session_number);
     view_change.set_next_view_number(next_session_number);
     view_change.set_high_message_number(last_executed);
+    view_change.set_replica_index(replicaIdx);
     epilogue_list.push_back([this, message]() mutable {
         PBMessage pb_layer(message);
         SignedAdapter signed_layer(pb_layer, identifier);
         // this is bad, should generalize
         TOMBFTHMACAdapter tom_layer(signed_layer, false, replicaIdx);
+        // TODO no hardcoded leader
+        transport->SendMessageToReplica(this, 0, tom_layer);
+    });
+    if (replicaIdx == 0) {
+        InsertViewChange(view_change);
+    }
+}
+
+void TOMBFTReplicaBase::HandleViewChange(
+    const TransportAddress &remote, const proto::ViewChange &view_change //
+) {
+    if (status != STATUS_EPOCH_CHANGE) {
+        return;
+    }
+
+    // TODO check view number, next view number, leadership
+    InsertViewChange(view_change);
+}
+
+void TOMBFTReplicaBase::InsertViewChange(const proto::ViewChange &view_change) {
+    view_change_set.emplace(view_change.replica_index(), view_change);
+    if ((int)view_change_set.size() < configuration.f * 2 + 1) {
+        return;
+    }
+
+    // on fast path, assume everyone has even high message number
+    // no message sync in ViewStart
+
+    proto::Message message;
+    auto &view_start = *message.mutable_view_start();
+    view_start.set_view_number(view_change.view_number());
+    view_start.set_high_message_number(last_executed);
+    epilogue_list.push_back([this, message]() mutable {
+        PBMessage pb_layer(message);
+        SignedAdapter signed_layer(pb_layer, identifier);
+        TOMBFTHMACAdapter tom_layer(signed_layer, false, replicaIdx);
         transport->SendMessageToAll(this, tom_layer);
     });
+
+    // assume epock change here
+    SendEpochStart(view_change.view_number());
+}
+
+void TOMBFTReplicaBase::HandleViewStart(
+    const TransportAddress &remote, const proto::ViewStart &view_start //
+) {
+    if (status != STATUS_EPOCH_CHANGE) {
+        return;
+    }
+
+    // assume identical log, skip log install
+    SendEpochStart(view_start.view_number());
+}
+
+void TOMBFTReplicaBase::SendEpochStart(sessnum_t session_number) {
+    proto::Message message;
+    auto &epoch_start = *message.mutable_epoch_start();
+    epoch_start.set_session_number(session_number);
+    epoch_start.set_high_message_number(last_executed);
+    epoch_start.set_replica_index(replicaIdx);
+    epilogue_list.push_back([this, message]() mutable {
+        PBMessage pb_layer(message);
+        SignedAdapter signed_layer(pb_layer, identifier);
+        TOMBFTHMACAdapter tom_layer(signed_layer, false, replicaIdx);
+        transport->SendMessageToAll(this, tom_layer);
+    });
+    InsertEpochStart(epoch_start);
+}
+
+void TOMBFTReplicaBase::HandleEpochStart(
+    const TransportAddress &remote, const proto::EpochStart &epoch_start //
+) {
+    if (status != STATUS_EPOCH_CHANGE) {
+        return;
+    }
+    // TODO check high op number, session number
+    InsertEpochStart(epoch_start);
+}
+
+void TOMBFTReplicaBase::InsertEpochStart(const proto::EpochStart &epoch_start) {
+    epoch_start_set.emplace(epoch_start.replica_index(), epoch_start);
+    if ((int)epoch_start_set.size() < configuration.f * 2 + 1) {
+        return;
+    }
+
+    status = STATUS_NORMAL;
+    view_change_set.clear();
+    epoch_start_set.clear();
+    session_number = epoch_start.session_number();
+    offset = 0 - last_executed;
+    for (Runner::Solo solo : epoch_change_buffer) {
+        solo();
+    }
+    epoch_change_buffer.clear();
 }
 
 static uint32_t measured_number = 0;
@@ -120,8 +213,8 @@ void TOMBFTReplica::HandleRequest(
     if (session_number == 0) {
         session_number = meta.SessionNumber();
     }
-    if (start_number > meta.MessageNumber()) {
-        start_number = meta.MessageNumber();
+    if (offset > meta.MessageNumber()) {
+        offset = meta.MessageNumber();
     }
     // RNotice(
     //     "message number = %u, is signed = %d", meta.MessageNumber(),
@@ -129,11 +222,12 @@ void TOMBFTReplica::HandleRequest(
 
     if (session_number != meta.SessionNumber()) {
         // RWarning(
-        //     "Session changed: %u -> %u", session_number, meta.SessionNumber());
+        //     "Session changed: %u -> %u", session_number,
+        //     meta.SessionNumber());
         NOT_IMPLEMENTED();
     }
 
-    if (meta.MessageNumber() < start_number + last_executed) {
+    if (meta.MessageNumber() < offset + last_executed) {
         return; // either it is signed or not, it is useless
     }
 
@@ -155,10 +249,10 @@ void TOMBFTReplica::HandleRequest(
                 break;
             }
             // RNotice("executing %d", iter->first);
-            if (iter->first != start_number + last_executed) {
+            if (iter->first != offset + last_executed) {
                 RWarning(
-                    "Gap: %lu (+%lu)", start_number + last_executed,
-                    iter->first - (start_number + last_executed));
+                    "Gap: %lu (+%lu)", offset + last_executed,
+                    iter->first - (offset + last_executed));
                 RWarning("Signed: %u", meta.MessageNumber());
                 NOT_IMPLEMENTED(); // state transfer
             }
@@ -197,9 +291,7 @@ void TOMBFTHMACReplica::HandleRequest(
     // convinent hack
     if (session_number == 0) {
         session_number = meta.SessionNumber();
-    }
-    if (start_number > meta.MessageNumber()) {
-        start_number = meta.MessageNumber();
+        offset = meta.MessageNumber() - 1;
     }
     // RNotice(
     //     "message number = %u, is signed = %d", meta.MessageNumber(),
@@ -207,8 +299,7 @@ void TOMBFTHMACReplica::HandleRequest(
 
     if (session_number != meta.SessionNumber()) {
         RWarning(
-            "Session changed: %lu -> %u", session_number,
-            meta.SessionNumber());
+            "Session changed: %lu -> %u", session_number, meta.SessionNumber());
         epoch_change_buffer.push_back(
             [                                                         //
                 this, escaping_remote = remote.clone(), message, meta //
@@ -220,15 +311,15 @@ void TOMBFTHMACReplica::HandleRequest(
         return;
     }
 
-    if (meta.MessageNumber() < start_number + last_executed) {
+    if (meta.MessageNumber() <= offset + last_executed) {
         return; // either it is signed or not, it is useless
     }
 
     n_message += 1;
-    if (meta.MessageNumber() != start_number + last_executed) {
+    if (meta.MessageNumber() != offset + last_executed + 1) {
         RWarning(
-            "Gap: %lu (+%lu)", start_number + last_executed,
-            meta.MessageNumber() - (start_number + last_executed));
+            "Gap: %lu (+%lu)", offset + last_executed + 1,
+            meta.MessageNumber() - (offset + last_executed));
         NOT_IMPLEMENTED(); // state transfer
     }
 

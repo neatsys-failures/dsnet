@@ -76,7 +76,7 @@ protected:
 
     const string identifier;
 
-    uint32_t start_number;
+    int64_t offset;  // message number - log op number
     uint64_t last_executed;
     sessnum_t session_number;
 
@@ -84,6 +84,18 @@ protected:
     std::unordered_map<uint64_t, proto::ReplyMessage> client_table;
     std::unordered_map<uint64_t, std::unique_ptr<TransportAddress>>
         address_table;
+
+    void HandleViewChange(
+        const TransportAddress &remote, const proto::ViewChange &view_change);
+    std::unordered_map<int, proto::ViewChange> view_change_set;
+    void InsertViewChange(const proto::ViewChange &view_change);
+    void HandleViewStart(
+        const TransportAddress &remote, const proto::ViewStart &view_start);
+    void SendEpochStart(sessnum_t session_number);
+    void HandleEpochStart(
+        const TransportAddress &remote, const proto::EpochStart &epoch_start);
+    void InsertEpochStart(const proto::EpochStart &epoch_start);
+    std::unordered_map<int, proto::EpochStart> epoch_start_set;
 
     std::map<uint32_t, Request> tom_buffer;
     void ExecuteOne(const Request &message); // insert into log by the way
@@ -150,12 +162,28 @@ void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
             switch (message.get_case()) {
             case proto::Message::GetCase::kRequest:
                 return [ //
-                           this, escaping_remote, message, tom]() mutable {
+                           this, escaping_remote, message, tom] {
                     auto remote =
                         std::unique_ptr<TransportAddress>(escaping_remote);
-                    HandleRequest(*remote, *message.mutable_request(), tom);
+                    HandleRequest(*remote, message.request(), tom);
                     ConcludeEpilogue();
                 };
+
+            case proto::Message::GetCase::kViewChange:
+                return [this, escaping_remote, message] {
+                    auto remote =
+                        std::unique_ptr<TransportAddress>(escaping_remote);
+                    HandleViewChange(*remote, message.view_change());
+                    ConcludeEpilogue();
+                };
+            case proto::Message::GetCase::kViewStart:
+                return [this, escaping_remote, message] {
+                    auto remote =
+                        std::unique_ptr<TransportAddress>(escaping_remote);
+                    HandleViewStart(*remote, message.view_start());
+                    ConcludeEpilogue();
+                };
+
             default:
                 RPanic("Unexpected message case: %d", message.get_case());
             }

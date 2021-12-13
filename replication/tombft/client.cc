@@ -22,7 +22,7 @@ TOMBFTClient::TOMBFTClient(
     pendingRequest = NULL;
     pendingUnloggedRequest = NULL;
     lastReqId = 0;
-    int interval = 1000;
+    int interval = use_hmac ? 100 : 1000;
     requestTimeout =
         new Timeout(transport, interval, [this]() { ResendRequest(); });
 }

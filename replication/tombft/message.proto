@@ -8,6 +8,8 @@ message Message {
         dsnet.Request request = 1;
         ReplyMessage reply = 2;
         ViewChange view_change = 3;
+        ViewStart view_start = 4;
+        EpochStart epoch_start = 5;
     }
 }
 
@@ -28,6 +30,7 @@ message ViewChange {
     uint32 view_number = 1;
     uint32 next_view_number = 2;
     uint32 high_message_number = 3;
+    int32 replica_index = 4;
 }
 
 message ViewStart {
@@ -38,4 +41,5 @@ message ViewStart {
 message EpochStart {
     uint32 session_number = 1;
     uint32 high_message_number = 2;
+    int32 replica_index = 3;
 }
