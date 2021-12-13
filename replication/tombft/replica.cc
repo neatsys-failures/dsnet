@@ -197,6 +197,7 @@ void TOMBFTReplicaBase::InsertEpochStart(const proto::EpochStart &epoch_start) {
 
 void TOMBFTReplicaBase::StartQuery(uint32_t message_number) {
     status = STATUS_GAP_COMMIT;
+    queried_message_number = message_number;
     epilogue_list.push_back([this, message_number] {
         proto::Message m;
         auto &query = *m.mutable_query();
@@ -286,6 +287,12 @@ void TOMBFTReplica::HandleRequest(
             }
             // RNotice("executing %d", iter->first);
             if (iter->first != offset + last_executed + 1) {
+
+                // a small hack that help stablize system
+                if (iter->first - (offset + last_executed) < 10) {
+                    return;
+                }
+
                 RWarning(
                     "Gap: %lu (+%lu)", offset + last_executed + 1,
                     iter->first - (offset + last_executed));

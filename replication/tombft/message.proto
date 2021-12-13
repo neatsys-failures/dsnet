@@ -27,7 +27,8 @@ message QueryMessage {
 }
 
 message QueryReplyMessage {
-    bytes queried = 1;
+    uint32 message_number = 1;
+    bytes queried = 2;
 }
 
 message ViewChange {

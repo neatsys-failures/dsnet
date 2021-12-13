@@ -18,7 +18,7 @@ namespace tombft {
 #define RPanic(fmt, ...) Panic("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
 
 template <typename Layout> struct LayoutToRunner {};
-template <> struct LayoutToRunner<TOMBFTAdapter> { using Runner = CTPLRunner; };
+template <> struct LayoutToRunner<TOMBFTAdapter> { using Runner = SpinRunner; };
 template <> struct LayoutToRunner<TOMBFTHMACAdapter> {
     using Runner = SpinOrderedRunner;
 };
@@ -32,31 +32,19 @@ public:
         }
         switch (replica_id / 4) {
         case 1:
-            core_id = 3;
+            core_id = 5;
             break;
         case 2:
-            core_id = 6;
+            core_id = 10;
             break;
         case 3:
-            core_id = 9;
-            break;
-        case 4:
-            core_id = 12;
-            break;
-        case 5:
             core_id = 32;
             break;
-        case 6:
-            core_id = 35;
+        case 4:
+            core_id = 37;
             break;
-        case 7:
-            core_id = 38;
-            break;
-        case 8:
-            core_id = 41;
-            break;
-        case 9:
-            core_id = 44;
+        case 5:
+            core_id = 42;
             break;
         default:
             Panic("Too many replicas");
@@ -99,6 +87,7 @@ protected:
     std::unordered_map<int, proto::EpochStart> epoch_start_set;
 
     void StartQuery(uint32_t message_number);
+    uint32_t queried_message_number;
     void HandleQueryMessage(
         const TransportAddress &remote, const proto::QueryMessage &query);
     std::unordered_map<uint32_t, std::string> query_buffer; // buffer for query
@@ -214,6 +203,14 @@ void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
                     ConcludeEpilogue();
                 };
             case proto::Message::GetCase::kQueryReply: {
+                if (status != STATUS_GAP_COMMIT) {
+                    return nullptr;
+                }
+                if ( //
+                    message.query_reply().message_number() !=
+                    queried_message_number) {
+                    return nullptr;
+                }
                 proto::Message reply;
                 PBMessage pb_reply(reply);
                 SignedAdapter signed_reply(pb_reply, "");

@@ -160,14 +160,14 @@ def wait_client(client_task, prefix):
     #     median_latency_max = max(median_latency_max, int(match[1]))
     # print(throughput_sum, median_latency_max)
 
-
+config_file = "run/nsl0.config"
 def replica_cmd(index, duration, mode, n_worker, batch_size=1):
     return [
         "timeout",
         f"{duration + 3}",
         proj_dir + "bench/replica",
         "-c",
-        proj_dir + "run/nsl0.config",
+        proj_dir + config_file,
         "-m",
         mode,
         "-i",
