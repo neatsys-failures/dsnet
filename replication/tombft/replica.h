@@ -89,11 +89,12 @@ protected:
     void InsertEpochStart(const proto::EpochStart &epoch_start);
     std::unordered_map<int, proto::EpochStart> epoch_start_set;
 
-    void StartQuery(uint32_t message_number);
+    void StartQuery(uint32_t message_number, bool spec = true);
     uint32_t queried_message_number, next_query_number;
     void HandleQueryMessage(
         const TransportAddress &remote, const proto::QueryMessage &query);
     std::unordered_map<uint32_t, std::string> query_buffer; // buffer for query
+    std::unordered_map<uint32_t, Runner::Solo> delayed_query_reply;
 
     // TODO should buffer for multiple view/session?
     std::map<uint32_t, Request> tom_buffer;
@@ -176,6 +177,10 @@ void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
                     auto remote =
                         std::unique_ptr<TransportAddress>(escaping_remote);
                     query_buffer[tom.MessageNumber()] = owned_buffer;
+                    if (delayed_query_reply.count(tom.MessageNumber())) {
+                        delayed_query_reply[tom.MessageNumber()]();
+                    }
+
                     HandleRequest(*remote, message.request(), tom);
                     ConcludeEpilogue();
                 };
@@ -203,63 +208,17 @@ void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
                 };
 
             case proto::Message::GetCase::kQuery:
-                // {
-                //     auto remote =
-                //         std::unique_ptr<TransportAddress>(escaping_remote);
-                //     const auto &query = message.query();
                 RDebug(
                     "Receiving Query: replica id = %d, message number = %u",
                     message.query().replica_index(),
                     message.query().message_number());
-                //     if (!query_buffer.count(query.message_number())) {
-                //         RWarning("Ignore unseen queried");
-                //         return nullptr;
-                //     }
-                //     const auto &message =
-                //     query_buffer[query.message_number()];
-                //     transport->SendMessage(
-                //         this, *remote,
-                //         BufferMessage(message.data(), message.size()));
-                //     return nullptr;
-                // }
+
                 return [this, escaping_remote, message] {
                     auto remote =
                         std::unique_ptr<TransportAddress>(escaping_remote);
                     HandleQueryMessage(*remote, message.query());
                     ConcludeEpilogue();
                 };
-                // case proto::Message::GetCase::kQueryReply: {
-                //     if (status != STATUS_GAP_COMMIT) {
-                //         return nullptr;
-                //     }
-                //     if ( //
-                //         message.query_reply().message_number() !=
-                //         queried_message_number) {
-                //         return nullptr;
-                //     }
-                //     proto::Message reply;
-                //     PBMessage pb_reply(reply);
-                //     SignedAdapter signed_reply(pb_reply, "");
-                //     Layout tom_reply(tom_reply, true, replicaIdx);
-                //     tom_reply.Parse(
-                //         message.query_reply().queried().data(),
-                //         message.query_reply().queried().size());
-                //     if (!tom_reply.IsVerified() ||
-                //     !signed_reply.IsVerified()) {
-                //         RWarning("Failed to verify QueryReply");
-                //         return nullptr;
-                //     }
-
-                //     return [ //
-                //                this, escaping_remote, reply, tom_reply] {
-                //         auto remote =
-                //             std::unique_ptr<TransportAddress>(escaping_remote);
-                //         status = STATUS_NORMAL;
-                //         HandleRequest(*remote, reply.request(), tom_reply);
-                //         ResumeBuffered();
-                //         ConcludeEpilogue();
-                //     };
-                // }
 
             default:
                 RPanic("Unexpected message case: %d", message.get_case());

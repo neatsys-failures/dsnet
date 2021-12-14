@@ -22,7 +22,8 @@ TOMBFTClient::TOMBFTClient(
     pendingRequest = NULL;
     pendingUnloggedRequest = NULL;
     lastReqId = 0;
-    int interval = use_hmac ? 100 + (clientid % 60) : 1000;
+    // int interval = use_hmac ? 100 + (clientid % 60) : 1000;
+    int interval = 1000;
     requestTimeout =
         new Timeout(transport, interval, [this]() { ResendRequest(); });
 }
@@ -121,7 +122,7 @@ void TOMBFTClient::HandleReply(
         }
     }
     Debug("Packet count = %d", count);
-    if (count < (use_hmac ? config.n : 2 * config.f + 1)) {
+    if (count < 2 * config.f + 1) {
         return;
     }
 
