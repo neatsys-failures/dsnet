@@ -254,7 +254,8 @@ void TOMBFTHMACAdapter::Parse(const void *buf, size_t size) {
     message_number = be32toh(layout->multicast.message_number);
     session_number = be16toh(layout->multicast.session_number);
     if (message_number == 0) {
-        Panic("TOM message not sequenced");
+        Warning("TOM message not sequenced, message size = %lu", size);
+        NOT_REACHABLE();
     }
 
     // Latency_Start(&inner_parse);

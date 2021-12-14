@@ -10,7 +10,7 @@ common.config_file = "run/nsl-large.config"
 
 common.setup("TOMBFT performance")
 
-duration = 10
+duration = 1
 n = 12
 
 
@@ -41,4 +41,4 @@ def run(t, n_client):
     return common.wait_client(client_task, t * n_client)
 
 
-run(24, 10)
+run(1, 10)

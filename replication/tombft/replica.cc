@@ -4,7 +4,6 @@
 #include "common/signedadapter.h"
 #include "lib/latency.h"
 #include "lib/message.h"
-#include "sequencer/sequencer.h"
 
 #define RDebug(fmt, ...) Debug("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
 #define RNotice(fmt, ...) Notice("[%d] " fmt, this->replicaIdx, ##__VA_ARGS__)
@@ -29,9 +28,13 @@ TOMBFTReplicaBase::TOMBFTReplicaBase(
     transport->ListenOnMulticast(this, config);
     status = STATUS_NORMAL;
 
-    query_timeout = unique_ptr<Timeout>(new Timeout(transport, 10, [this] {
-        GetRunner().RunPrologue(
-            [this] { return [this] { StartQuery(next_query_number); }; });
+    query_timeout = unique_ptr<Timeout>(new Timeout(transport, 1, [this] {
+        GetRunner().RunPrologue([this] {
+            return [this] {
+                StartQuery(next_query_number);
+                ConcludeEpilogue();
+            };
+        });
     }));
     queried_message_number = 0;
     next_query_number = 0;
@@ -161,14 +164,14 @@ void TOMBFTReplicaBase::InsertViewChange(const proto::ViewChange &view_change) {
         return;
     }
 
-    RNotice("Start view: session number = %u", view_change.view_number());
+    RNotice("Start view: session number = %u", view_change.next_view_number());
 
     // on fast path, assume everyone has even high message number
     // no message sync in ViewStart
 
     proto::Message message;
     auto &view_start = *message.mutable_view_start();
-    view_start.set_view_number(view_change.view_number());
+    view_start.set_view_number(view_change.next_view_number());
     view_start.set_high_message_number(last_executed);
     epilogue_list.push_back([this, message]() mutable {
         PBMessage pb_layer(message);
@@ -178,7 +181,7 @@ void TOMBFTReplicaBase::InsertViewChange(const proto::ViewChange &view_change) {
     });
 
     // assume epock change here
-    SendEpochStart(view_change.view_number());
+    SendEpochStart(view_change.next_view_number());
 }
 
 void TOMBFTReplicaBase::HandleViewStart(
@@ -239,6 +242,7 @@ void TOMBFTReplicaBase::InsertEpochStart(const proto::EpochStart &epoch_start) {
 }
 
 void TOMBFTReplicaBase::StartQuery(uint32_t message_number) {
+    // TODO initiate gap agreement instead of resend
     if (queried_message_number == message_number) {
         return; // TODO resend
     }
@@ -252,6 +256,11 @@ void TOMBFTReplicaBase::StartQuery(uint32_t message_number) {
         PBMessage pb_layer(m);
         SignedAdapter signed_layer(pb_layer, identifier, false);
         TOMBFTHMACAdapter tom_layer(signed_layer, false, replicaIdx);
+        // RWarning("Send Query (epilogue): message number = %u",
+        // message_number);
+        if (tom_layer.SerializedSize() < 15) {
+            NOT_REACHABLE();
+        }
         transport->SendMessageToAll(this, tom_layer);
     });
 }
@@ -259,17 +268,26 @@ void TOMBFTReplicaBase::StartQuery(uint32_t message_number) {
 void TOMBFTReplicaBase::HandleQueryMessage(
     const TransportAddress &remote, const proto::QueryMessage &query //
 ) {
+    // RNotice(
+    //     "HandleQuery: replica id = %d, message number = %u",
+    //     query.replica_index(), query.message_number());
     if (!query_buffer.count(query.message_number())) {
+        RWarning("Ignore unseen queried");
         return;
     }
-    epilogue_list.push_back([ //
-                                this, escaping_remote = remote.clone(),
-                                message_number = query.message_number()] {
-        auto remote = unique_ptr<TransportAddress>(escaping_remote);
-        const auto &message = query_buffer[message_number];
-        transport->SendMessage(
-            this, *remote, BufferMessage(message.data(), message.size()));
-    });
+    epilogue_list.push_back(
+        [ //
+            this, escaping_remote = remote.clone(),
+            message = query_buffer[query.message_number()] //
+    ] {
+            if (message.size() < 20) {
+                RPanic("Wrong message on query_buffer");
+            }
+            auto remote = unique_ptr<TransportAddress>(escaping_remote);
+            // const auto &message = query_buffer[message_number];
+            transport->SendMessage(
+                this, *remote, BufferMessage(message.data(), message.size()));
+        });
 }
 
 static uint32_t measured_number = 0;
@@ -283,7 +301,8 @@ void TOMBFTReplica::HandleRequest(
         return;
     }
 
-    if (!address_table[message.clientid()]) {
+    if (!address_table[message.clientid()] &&
+        meta.MessageNumber() != next_query_number) {
         address_table[message.clientid()] =
             unique_ptr<TransportAddress>(remote.clone());
     }
@@ -330,7 +349,8 @@ void TOMBFTHMACReplica::HandleRequest(
         return;
     }
 
-    if (!address_table[message.clientid()]) {
+    if (!address_table[message.clientid()] &&
+        meta.MessageNumber() != next_query_number) {
         address_table[message.clientid()] =
             unique_ptr<TransportAddress>(remote.clone());
     }

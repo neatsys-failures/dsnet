@@ -7,6 +7,7 @@
 #include "lib/transport.h"
 #include "replication/tombft/adapter.h"
 #include "replication/tombft/message.pb.h"
+#include "sequencer/sequencer.h"
 #include <deque>
 
 namespace dsnet {
@@ -147,6 +148,16 @@ void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
             this, escaping_remote = remote.clone(),
             owned_buffer = string((const char *)buf, size) //
     ]() -> Runner::Solo {
+            // RNotice("Receive");
+            if (owned_buffer.size() <= 14) {
+                RWarning(
+                    "remote = %s, size = %lu",
+                    transport->ReverseLookupAddress(*escaping_remote)
+                        .Serialize()
+                        .c_str(),
+                    owned_buffer.size());
+            }
+
             proto::Message message;
             PBMessage pb(message);
             SignedAdapter security(pb, "");
@@ -164,7 +175,7 @@ void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
                            this, escaping_remote, message, tom, owned_buffer] {
                     auto remote =
                         std::unique_ptr<TransportAddress>(escaping_remote);
-                    query_buffer.emplace(tom.MessageNumber(), owned_buffer);
+                    query_buffer[tom.MessageNumber()] = owned_buffer;
                     HandleRequest(*remote, message.request(), tom);
                     ConcludeEpilogue();
                 };
@@ -192,6 +203,25 @@ void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
                 };
 
             case proto::Message::GetCase::kQuery:
+                // {
+                //     auto remote =
+                //         std::unique_ptr<TransportAddress>(escaping_remote);
+                //     const auto &query = message.query();
+                RDebug(
+                    "Receiving Query: replica id = %d, message number = %u",
+                    message.query().replica_index(),
+                    message.query().message_number());
+                //     if (!query_buffer.count(query.message_number())) {
+                //         RWarning("Ignore unseen queried");
+                //         return nullptr;
+                //     }
+                //     const auto &message =
+                //     query_buffer[query.message_number()];
+                //     transport->SendMessage(
+                //         this, *remote,
+                //         BufferMessage(message.data(), message.size()));
+                //     return nullptr;
+                // }
                 return [this, escaping_remote, message] {
                     auto remote =
                         std::unique_ptr<TransportAddress>(escaping_remote);
