@@ -255,19 +255,19 @@ int main(int argc, char **argv) {
     case PROTO_PBFT:
         server = nistore::Server(true);
         replica = new dsnet::pbft::PBFTReplica(
-            config, index, "Steve", 14, 30, &transport, &server);
+            config, index, "Steve", 14, 8, &transport, &server);
         break;
 
     case PROTO_MINBFT:
         server = nistore::Server(true);
         replica = new dsnet::minbft::MinBFTReplica(
-            config, index, "Steve", 14, 30, &transport, &server);
+            config, index, "Steve", 14, 8, &transport, &server);
         break;
 
     case PROTO_HOTSTUFF:
         server = nistore::Server(true);
         replica = new dsnet::hotstuff::HotStuffReplica(
-            config, index, "Steve", 14, 30, &transport, &server);
+            config, index, "Steve", 14, 8, &transport, &server);
         break;
 
     case PROTO_TOMBFT:

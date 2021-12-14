@@ -8,7 +8,7 @@ import common
 
 common.setup("TOMBFT performance")
 
-duration = 10
+duration = 1
 
 
 def run(t, n_client):
@@ -37,4 +37,37 @@ def run(t, n_client):
     return common.wait_client(client_task, t * n_client)
 
 
-run(24, 10)
+for t, n_client in [
+    # (1, 1),
+    # (1, 2),
+    # (1, 5),
+    # (1, 10),
+    # (2, 10),
+    # (5, 5),
+    # (3, 10),
+    # (4, 10),
+    # (5, 10),
+    # (6, 10),
+    # (8, 10),
+    # (10, 10),
+    # (12, 10),
+    # (14, 10),
+    # (16, 10),
+    # (18, 10),
+    # (20, 10),
+    # (25, 10),
+    # (30, 10),
+    (35, 10),
+    # (40, 10),
+    # (42, 10),
+    # (44, 10),
+    # (46, 10),
+    # (50, 10),
+    # (55, 10),
+    # (60, 10),
+    # (80, 10),
+    # (85, 10),
+    # (90, 10),
+]:
+    while not run(t, n_client):
+        pass

@@ -37,16 +37,18 @@ def run(t, n_client):
 
 
 for t, n_client in [
-    (1, 8),  # how the hell to get min latency?
     (1, 10),
     (2, 10),
     (4, 10),
+    (5, 10),
+    (6, 10),
+    (7, 10),
     (8, 10),
     (16, 10),
     (20, 10),
-    (24, 10),
-    (28, 10),
-    (32, 10),
+    # (24, 10),
+    # (28, 10),
+    # (32, 10),
 ]:
     while not run(t, n_client):
         pass

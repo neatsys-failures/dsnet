@@ -15,7 +15,7 @@ def run(t, n_client):
     replica_task = [
         common.node[i + 1].run(
             common.replica_cmd(i, duration, "tombft-hmac", n_worker=4)
-            + ["-d", "0.001"],
+            + ["-d", "0.0005"],
             return_output=True,
         )
         for i in range(4)
@@ -39,4 +39,4 @@ def run(t, n_client):
     return common.wait_client(client_task, t * n_client)
 
 
-run(25, 20)
+run(4, 20)

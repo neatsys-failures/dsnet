@@ -36,6 +36,7 @@ def run(t, n_client):
 
 
 for t, n_client in [
+    (15, 10),
     (16, 10),
     (20, 10),
     (24, 10),

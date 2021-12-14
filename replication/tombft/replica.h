@@ -150,14 +150,14 @@ void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
             owned_buffer = string((const char *)buf, size) //
     ]() -> Runner::Solo {
             // RNotice("Receive");
-            if (owned_buffer.size() <= 14) {
-                RWarning(
-                    "remote = %s, size = %lu",
-                    transport->ReverseLookupAddress(*escaping_remote)
-                        .Serialize()
-                        .c_str(),
-                    owned_buffer.size());
-            }
+            // if (owned_buffer.size() <= 14) {
+            //     RWarning(
+            //         "remote = %s, size = %lu",
+            //         transport->ReverseLookupAddress(*escaping_remote)
+            //             .Serialize()
+            //             .c_str(),
+            //         owned_buffer.size());
+            // }
 
             proto::Message message;
             PBMessage pb(message);
@@ -177,9 +177,9 @@ void TOMBFTReplicaCommon<Layout>::ReceiveMessage(
                     auto remote =
                         std::unique_ptr<TransportAddress>(escaping_remote);
                     query_buffer[tom.MessageNumber()] = owned_buffer;
-                    if (delayed_query_reply.count(tom.MessageNumber())) {
-                        delayed_query_reply[tom.MessageNumber()]();
-                    }
+                    // if (delayed_query_reply.count(tom.MessageNumber())) {
+                    //     delayed_query_reply[tom.MessageNumber()]();
+                    // }
 
                     HandleRequest(*remote, message.request(), tom);
                     ConcludeEpilogue();

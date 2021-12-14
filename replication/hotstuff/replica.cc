@@ -40,7 +40,7 @@ HotStuffReplica::HotStuffReplica( //
         unique_ptr<Timeout>(new Timeout(transport, 10, [this]() {
             runner.RunPrologue([this]() {
                 return [this]() {
-                    RNotice("Send generic on timeout");
+                    RDebug("Send generic on timeout");
                     CloseBatch();
                     ConcludeEpilogue();
                 };
