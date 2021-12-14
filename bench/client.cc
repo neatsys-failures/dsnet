@@ -30,7 +30,6 @@
 
 #include "common/client.h"
 #include "bench/benchmark.h"
-#include "common/pbmessage.h"
 #include "lib/assert.h"
 #include "lib/configuration.h"
 #include "lib/dpdktransport.h"
@@ -48,46 +47,7 @@
 
 #include <fstream>
 #include <stdlib.h>
-#include <sys/time.h>
 #include <unistd.h>
-
-using namespace dsnet;
-class Recv : public TransportReceiver {
-public:
-    Recv(Transport *transport, const Configuration &c, const string &host)
-        : transport(transport) {
-        ReplicaAddress addr(host, "0");
-        transport->RegisterAddress(this, c, &addr);
-        transport->ListenOnMulticast(this, c);
-        _Latency_Init(&l, "switch");
-        n = 0;
-    }
-
-    void Start() {
-        timeval tv;
-        gettimeofday(&tv, nullptr);
-        uint64_t start = tv.tv_sec * 1000000 + tv.tv_usec;
-        Request request;
-        request.set_op(string(100, '0'));
-        request.set_clientid(0);
-        request.set_clientreqid(0);
-        while (true) {
-            transport->SendMessageToMulticast(this, PBMessage(request));
-            gettimeofday(&tv, nullptr);
-            if (tv.tv_sec * 1000000 + tv.tv_usec - start > 10 * 1000 * 1000) {
-                break;
-            }
-        }
-        exit(0);
-    }
-
-    void ReceiveMessage(const TransportAddress &remote, void *buf, size_t len) override {}
-
-private:
-    Latency_t l;
-    Transport *transport;
-    int n;
-};
 
 static void Usage(const char *progName) {
     fprintf(
@@ -287,9 +247,168 @@ int main(int argc, char **argv) {
         break;
     }
 
-    Recv recv(transport, config, host);
-    transport->Timer(0, [&] { recv.Start(); });
-    transport->Run();
+    std::vector<dsnet::Client *> clients;
+    std::vector<dsnet::BenchmarkClient *> benchClients;
+    dsnet::ReplicaAddress addr(host, "0", dev);
 
+    for (int i = 0; i < numClients; i++) {
+        dsnet::Client *client;
+        switch (proto) {
+        case PROTO_UNREPLICATED:
+            client = new dsnet::unreplicated::UnreplicatedClient(
+                config, addr, transport);
+            break;
+
+        case PROTO_VR:
+            client = new dsnet::vr::VRClient(config, addr, transport);
+            break;
+
+        case PROTO_FASTPAXOS:
+            client =
+                new dsnet::fastpaxos::FastPaxosClient(config, addr, transport);
+            break;
+
+        case PROTO_NOPAXOS:
+            client = new dsnet::nopaxos::NOPaxosClient(config, addr, transport);
+            break;
+
+        case PROTO_SIGNEDUNREP:
+            client = new dsnet::signedunrep::SignedUnrepClient(
+                config, addr, "Alex", transport);
+            break;
+
+        case PROTO_TOMBFT:
+            client = new dsnet::tombft::TOMBFTClient(
+                config, addr, "Alex", false, transport);
+            break;
+
+        case PROTO_TOMBFT_HMAC:
+            client = new dsnet::tombft::TOMBFTClient(
+                config, addr, "Alex", true, transport);
+            break;
+
+        case PROTO_HOTSTUFF:
+            client = new dsnet::hotstuff::HotStuffClient(
+                config, addr, "Alex", transport);
+            break;
+
+        case PROTO_PBFT:
+            client =
+                new dsnet::pbft::PBFTClient(config, addr, "Alex", transport);
+            break;
+
+        case PROTO_MINBFT:
+            client = new dsnet::minbft::MinBFTClient(
+                config, addr, "Alex", transport);
+            break;
+        default:
+            NOT_REACHABLE();
+        }
+
+        dsnet::BenchmarkClient *bench = new dsnet::BenchmarkClient(
+            *client, *transport, duration, delay, tputInterval);
+
+        transport->Timer(0, [=]() { bench->Start(); });
+        clients.push_back(client);
+        benchClients.push_back(bench);
+    }
+    {
+        dsnet::Timeout checkTimeout(transport, 100, [&]() {
+            for (auto x : benchClients) {
+                if (!x->done) {
+                    return;
+                }
+            }
+            Notice("All clients done.");
+
+            Latency_t sum;
+            _Latency_Init(&sum, "total");
+            std::map<int, int> agg_latencies;
+            std::map<uint64_t, int> agg_throughputs;
+            uint64_t agg_ops = 0;
+            for (unsigned int i = 0; i < benchClients.size(); i++) {
+                Latency_Sum(&sum, &benchClients[i]->latency);
+                for (const auto &kv : benchClients[i]->latencies) {
+                    agg_latencies[kv.first] += kv.second;
+                }
+                for (const auto &kv : benchClients[i]->throughputs) {
+                    agg_throughputs[kv.first] +=
+                        kv.second * (1000 / tputInterval);
+                }
+                agg_ops += benchClients[i]->completedOps;
+            }
+            Latency_Dump(&sum);
+
+            Notice("Total throughput is %ld ops/sec", agg_ops / duration);
+            enum class Mode { kMedian, k90, k95, k99 };
+            uint64_t count = 0;
+            int median, p90, p95, p99;
+            Mode mode = Mode::kMedian;
+            for (const auto &kv : agg_latencies) {
+                count += kv.second;
+                switch (mode) {
+                case Mode::kMedian:
+                    if (count >= agg_ops / 2) {
+                        median = kv.first;
+                        Notice("Median latency is %d us", median);
+                        mode = Mode::k90;
+                        // fall through
+                    } else {
+                        break;
+                    }
+                case Mode::k90:
+                    if (count >= agg_ops * 90 / 100) {
+                        p90 = kv.first;
+                        Notice("90th percentile latency is %d us", p90);
+                        mode = Mode::k95;
+                        // fall through
+                    } else {
+                        break;
+                    }
+                case Mode::k95:
+                    if (count >= agg_ops * 95 / 100) {
+                        p95 = kv.first;
+                        Notice("95th percentile latency is %d us", p95);
+                        mode = Mode::k99;
+                        // fall through
+                    } else {
+                        break;
+                    }
+                case Mode::k99:
+                    if (count >= agg_ops * 99 / 100) {
+                        p99 = kv.first;
+                        Notice("99th percentile latency is %d us", p99);
+                        goto done;
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+        done:
+            if (statsFile.size() > 0) {
+                std::ofstream fs(statsFile.c_str(), std::ios::out);
+                fs << agg_ops / duration << std::endl;
+                fs << median << " " << p90 << " " << p95 << " " << p99
+                   << std::endl;
+                for (const auto &kv : agg_latencies) {
+                    fs << kv.first << " " << kv.second << std::endl;
+                }
+                fs.close();
+                if (agg_throughputs.size() > 0) {
+                    fs.open(statsFile.append("_tputs").c_str());
+                    for (const auto &kv : agg_throughputs) {
+                        fs << kv.first << " " << kv.second << std::endl;
+                    }
+                }
+                fs.close();
+            }
+            // exit(0);
+            transport->Stop();
+        });
+        checkTimeout.Start();
+
+        transport->Run();
+    }
     delete transport;
 }
